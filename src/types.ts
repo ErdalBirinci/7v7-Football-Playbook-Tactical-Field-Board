@@ -103,3 +103,23 @@ export interface DefenseScheme {
   strength: string;
   players: DefensivePlayer[];
 }
+
+export interface FormationTemplatePlayerPosition {
+  id: string;
+  label: string;
+  positionName: string;
+  initialPos: { x: number; y: number };
+  roleDescription?: string;
+  defaultRouteNumber?: number | string;
+}
+
+export interface FormationTemplate {
+  id: string;
+  name: string;
+  category?: FormationCategory | string;
+  direction?: Direction;
+  isBuiltIn?: boolean;
+  description?: string;
+  playerPositions: Record<string, FormationTemplatePlayerPosition>;
+}
+
