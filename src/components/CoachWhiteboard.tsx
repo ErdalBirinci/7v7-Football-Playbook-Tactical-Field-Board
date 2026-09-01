@@ -23,6 +23,8 @@ import {
   Undo2,
   Redo2,
   Users,
+  Magnet,
+  Grid3X3,
 } from 'lucide-react';
 import { Play, PlayerAssignment } from '../types';
 
@@ -90,6 +92,7 @@ export const CoachWhiteboard: React.FC<CoachWhiteboardProps> = ({
   const [fieldTheme, setFieldTheme] = useState<'chalkboard' | 'turf' | 'dark'>('chalkboard');
   const [showUnderlayPlay, setShowUnderlayPlay] = useState<boolean>(true);
   const [showGridlines, setShowGridlines] = useState<boolean>(true);
+  const [snapToGrid, setSnapToGrid] = useState<boolean>(true);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [inputText, setInputText] = useState<string>('');
   const [isAddingText, setIsAddingText] = useState<boolean>(false);
@@ -108,6 +111,22 @@ export const CoachWhiteboard: React.FC<CoachWhiteboardProps> = ({
 
   // Tablet stylus pressure / smoothing
   const [lastTouchTime, setLastTouchTime] = useState<number>(0);
+
+  // Football Field Standard Grid Snapping (5% horizontal & 5% vertical yard intervals)
+  const snapToFootballGrid = useCallback(
+    (pt: { x: number; y: number }): { x: number; y: number } => {
+      if (!snapToGrid) return pt;
+      const stepX = 0.05;
+      const stepY = 0.05;
+      const snappedX = Math.max(0.05, Math.min(0.95, Math.round(pt.x / stepX) * stepX));
+      const snappedY = Math.max(0.05, Math.min(0.95, Math.round(pt.y / stepY) * stepY));
+      return {
+        x: Number(snappedX.toFixed(3)),
+        y: Number(snappedY.toFixed(3)),
+      };
+    },
+    [snapToGrid]
+  );
 
   // Update history snapshot
   const pushState = useCallback((newElements: DrawnElement[]) => {
@@ -160,6 +179,10 @@ export const CoachWhiteboard: React.FC<CoachWhiteboardProps> = ({
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
         e.preventDefault();
         handleRedo();
+      } else if (e.key === 'g' || e.key === 'G') {
+        if (!e.ctrlKey && !e.metaKey) {
+          setSnapToGrid((prev) => !prev);
+        }
       } else if (e.key === 'Escape') {
         if (isFullscreen) {
           setIsFullscreen(false);
@@ -274,6 +297,22 @@ export const CoachWhiteboard: React.FC<CoachWhiteboardProps> = ({
           ctx.stroke();
         }
       });
+    }
+
+    // 1b. Tactical Snap-to-Grid Alignment Matrix (when Snap-to-Grid is active)
+    if (snapToGrid) {
+      ctx.save();
+      for (let gx = 0.05; gx <= 0.95; gx += 0.05) {
+        for (let gy = 0.15; gy <= 0.90; gy += 0.05) {
+          const x = gx * width;
+          const y = gy * height;
+          ctx.fillStyle = fieldTheme === 'turf' ? 'rgba(255, 255, 255, 0.22)' : 'rgba(56, 189, 248, 0.25)';
+          ctx.beginPath();
+          ctx.arc(x, y, 1.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.restore();
     }
 
     // 2. Render Underlay of Current Selected Play (if toggled on)
@@ -476,9 +515,42 @@ export const CoachWhiteboard: React.FC<CoachWhiteboardProps> = ({
         }
       }
 
+      // Magnetic snap reticle indicator on active endpoint when Snap-to-Grid is ON
+      if (snapToGrid && currentPathRef.current.length > 0) {
+        const lastPt = currentPathRef.current[currentPathRef.current.length - 1];
+        const snapped = snapToFootballGrid(lastPt);
+        const sx = snapped.x * width;
+        const sy = snapped.y * height;
+        ctx.save();
+        ctx.strokeStyle = '#facc15';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(sx, sy, 8, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(sx - 12, sy);
+        ctx.lineTo(sx + 12, sy);
+        ctx.moveTo(sx, sy - 12);
+        ctx.lineTo(sx, sy + 12);
+        ctx.stroke();
+        ctx.restore();
+      }
+
       ctx.restore();
     }
-  }, [elements, fieldTheme, showUnderlayPlay, showGridlines, currentPlay, color, strokeWidth, tool]);
+  }, [
+    elements,
+    fieldTheme,
+    showUnderlayPlay,
+    showGridlines,
+    snapToGrid,
+    snapToFootballGrid,
+    currentPlay,
+    color,
+    strokeWidth,
+    tool,
+  ]);
 
   // Synchronize canvas size on mount / resize
   const syncCanvasDimensions = useCallback(() => {
@@ -528,12 +600,13 @@ export const CoachWhiteboard: React.FC<CoachWhiteboardProps> = ({
     isDrawingRef.current = true;
     setLastTouchTime(Date.now());
 
-    const coords = getNormalizedCoords(e);
+    const rawCoords = getNormalizedCoords(e);
+    const coords = snapToFootballGrid(rawCoords);
     startPointRef.current = coords;
     currentPathRef.current = [coords];
 
     if (tool === 'o-token' || tool === 'x-token') {
-      // Place token immediately at tap coordinate
+      // Place token cleanly aligned to grid
       const newEl: DrawnElement = {
         id: `token-${Date.now()}`,
         type: 'token',
@@ -557,7 +630,7 @@ export const CoachWhiteboard: React.FC<CoachWhiteboardProps> = ({
 
     if (tool === 'eraser') {
       // Erase elements near tap
-      eraseElementsNear(coords);
+      eraseElementsNear(rawCoords);
     }
 
     redrawCanvas();
@@ -585,17 +658,18 @@ export const CoachWhiteboard: React.FC<CoachWhiteboardProps> = ({
     if (!isDrawingRef.current) return;
     e.preventDefault();
 
-    const coords = getNormalizedCoords(e);
+    const rawCoords = getNormalizedCoords(e);
 
     if (tool === 'eraser') {
-      eraseElementsNear(coords);
+      eraseElementsNear(rawCoords);
       return;
     }
 
     if (tool === 'pen') {
-      currentPathRef.current.push(coords);
+      currentPathRef.current.push(rawCoords);
     } else if (tool === 'line' || tool === 'arrow' || tool === 'dashed-arrow') {
-      currentPathRef.current = [startPointRef.current || coords, coords];
+      const snapped = snapToFootballGrid(rawCoords);
+      currentPathRef.current = [startPointRef.current || snapped, snapped];
     }
 
     redrawCanvas();
@@ -606,24 +680,31 @@ export const CoachWhiteboard: React.FC<CoachWhiteboardProps> = ({
     e.preventDefault();
     isDrawingRef.current = false;
 
-    const coords = getNormalizedCoords(e);
+    const rawCoords = getNormalizedCoords(e);
 
     if (tool === 'pen' && currentPathRef.current.length > 1) {
+      const points = [...currentPathRef.current];
+      if (snapToGrid) {
+        // Snap start and end anchors cleanly to grid
+        points[0] = snapToFootballGrid(points[0]);
+        points[points.length - 1] = snapToFootballGrid(points[points.length - 1]);
+      }
       const newEl: DrawnElement = {
         id: `pen-${Date.now()}`,
         type: 'freehand',
         color,
         strokeWidth,
-        points: [...currentPathRef.current],
+        points,
       };
       pushState([...elements, newEl]);
     } else if ((tool === 'line' || tool === 'arrow' || tool === 'dashed-arrow') && startPointRef.current) {
+      const snappedEnd = snapToFootballGrid(rawCoords);
       const newEl: DrawnElement = {
         id: `${tool}-${Date.now()}`,
         type: tool,
         color,
         strokeWidth,
-        points: [startPointRef.current, coords],
+        points: [startPointRef.current, snappedEnd],
       };
       pushState([...elements, newEl]);
     }
@@ -738,6 +819,22 @@ export const CoachWhiteboard: React.FC<CoachWhiteboardProps> = ({
               title="Redo (Ctrl+Y)"
             >
               <Redo2 className="w-4 h-4" />
+            </button>
+
+            {/* Snap to Grid Quick Toggle */}
+            <button
+              id="wb-top-snap-to-grid-btn"
+              onClick={() => setSnapToGrid(!snapToGrid)}
+              className={`px-2.5 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                snapToGrid
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-xs'
+                  : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200'
+              }`}
+              title="Toggle Grid Magnet Snapping (Shortcut: G) — Align player positions and routes cleanly"
+            >
+              <Magnet className={`w-3.5 h-3.5 ${snapToGrid ? 'text-amber-400' : ''}`} />
+              <span className="hidden md:inline">Snap-to-Grid: {snapToGrid ? 'ON' : 'OFF'}</span>
+              <span className="md:hidden">Snap {snapToGrid ? 'ON' : 'OFF'}</span>
             </button>
 
             <div className="h-5 w-px bg-slate-700 mx-1" />
@@ -1059,7 +1156,7 @@ export const CoachWhiteboard: React.FC<CoachWhiteboardProps> = ({
                 </button>
               )}
 
-              {/* Toggle Grid */}
+              {/* Toggle Gridlines */}
               <button
                 onClick={() => setShowGridlines(!showGridlines)}
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-medium transition-all ${
@@ -1071,6 +1168,26 @@ export const CoachWhiteboard: React.FC<CoachWhiteboardProps> = ({
               >
                 <Layers className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Yardlines</span>
+              </button>
+
+              <div className="h-4 w-px bg-slate-700" />
+
+              {/* Snap-to-Grid Toggle */}
+              <button
+                id="wb-snap-to-grid-btn"
+                onClick={() => setSnapToGrid(!snapToGrid)}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-medium transition-all ${
+                  snapToGrid
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-xs'
+                    : 'text-slate-400 hover:text-slate-200 border border-transparent'
+                }`}
+                title="Snap to Grid (Shortcut: G) — Align player tokens and routes precisely to field grid"
+              >
+                <Magnet className={`w-3.5 h-3.5 ${snapToGrid ? 'text-amber-400' : ''}`} />
+                <span className="hidden sm:inline">Snap to Grid:</span>
+                <span className={`font-mono text-[11px] font-bold ${snapToGrid ? 'text-amber-400' : 'text-slate-400'}`}>
+                  {snapToGrid ? 'ON' : 'OFF'}
+                </span>
               </button>
             </div>
           </div>

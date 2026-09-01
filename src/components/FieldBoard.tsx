@@ -1,6 +1,23 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, DefensivePlayer, DefenseScheme, PlayerAssignment } from '../types';
-import { Maximize2, Minimize2, Play as PlayIcon, Pause, RotateCcw, PenTool } from 'lucide-react';
+import { Play, DefensivePlayer, DefenseScheme, PlayerAssignment, RosterPlayer, TokenDisplayMode } from '../types';
+import { getPlayerAssignedToSlot } from '../data/rosterData';
+import {
+  detectConceptsForPlay,
+  ROUTE_CONCEPTS_DATABASE,
+  RouteConceptDefinition,
+} from '../data/routeConceptsData';
+import { CoachingVideoOverlay } from './CoachingVideoOverlay';
+import {
+  Maximize2,
+  Minimize2,
+  Play as PlayIcon,
+  Pause,
+  RotateCcw,
+  PenTool,
+  Users,
+  GraduationCap,
+  Tv,
+} from 'lucide-react';
 
 interface FieldBoardProps {
   play: Play;
@@ -17,6 +34,15 @@ interface FieldBoardProps {
   onTogglePlay?: () => void;
   onSeek?: (progress: number) => void;
   onOpenWhiteboard?: () => void;
+  roster?: RosterPlayer[];
+  tokenDisplayMode?: TokenDisplayMode;
+  onToggleTokenMode?: () => void;
+  onOpenRoster?: () => void;
+  isCoachingOverlayOpen?: boolean;
+  onToggleCoachingOverlay?: (val: boolean) => void;
+  onOpenCoachingModal?: () => void;
+  activeRouteConceptId?: string;
+  onSelectRouteConceptId?: (id: string) => void;
 }
 
 export const FieldBoard: React.FC<FieldBoardProps> = ({
@@ -34,9 +60,26 @@ export const FieldBoard: React.FC<FieldBoardProps> = ({
   onTogglePlay,
   onSeek,
   onOpenWhiteboard,
+  roster = [],
+  tokenDisplayMode = 'jersey',
+  onToggleTokenMode,
+  onOpenRoster,
+  isCoachingOverlayOpen = false,
+  onToggleCoachingOverlay,
+  onOpenCoachingModal,
+  activeRouteConceptId,
+  onSelectRouteConceptId,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showCoachingFieldHighlights, setShowCoachingFieldHighlights] = useState(true);
+
+  // Available concepts for active play
+  const matchedConcepts = detectConceptsForPlay(play);
+  const activeConcept =
+    ROUTE_CONCEPTS_DATABASE.find((c) => c.id === activeRouteConceptId) ||
+    matchedConcepts[0] ||
+    ROUTE_CONCEPTS_DATABASE[0];
 
   // Synchronize fullscreen state with browser events and keydown (ESC)
   useEffect(() => {
@@ -793,6 +836,65 @@ export const FieldBoard: React.FC<FieldBoardProps> = ({
           </g>
         )}
 
+        {/* ================= Coaching Highlights (When Video Overlay Active) ================= */}
+        {isCoachingOverlayOpen && showCoachingFieldHighlights && activeConcept.fieldHighlightZones && (
+          <g className="animate-in fade-in duration-300">
+            {activeConcept.fieldHighlightZones.map((zone, idx) => {
+              const isConflict = zone.type === 'conflict_zone';
+              const isRead = zone.type === 'read_window';
+              const ringColor = isConflict ? '#ef4444' : isRead ? '#22c55e' : '#38bdf8';
+              const fillBg = isConflict ? 'rgba(239, 68, 68, 0.15)' : isRead ? 'rgba(34, 197, 94, 0.15)' : 'rgba(56, 189, 248, 0.15)';
+
+              return (
+                <g key={`coaching-zone-${idx}`}>
+                  {/* Outer Pulsing Zone Ring */}
+                  <circle
+                    cx={zone.x}
+                    cy={zone.y}
+                    r={zone.radius}
+                    fill={fillBg}
+                    stroke={ringColor}
+                    strokeWidth="0.6"
+                    strokeDasharray={isConflict ? '2,2' : '3,2'}
+                  />
+                  {/* Center Dot Landmark */}
+                  <circle
+                    cx={zone.x}
+                    cy={zone.y}
+                    r="1.2"
+                    fill={ringColor}
+                  />
+                  {/* Zone Label Badge */}
+                  <g>
+                    <rect
+                      x={zone.x - 12}
+                      y={zone.y + zone.radius + 1.2}
+                      width="24"
+                      height="3.6"
+                      rx="1"
+                      fill="#0f172a"
+                      stroke={ringColor}
+                      strokeWidth="0.3"
+                      opacity="0.95"
+                    />
+                    <text
+                      x={zone.x}
+                      y={zone.y + zone.radius + 3.8}
+                      textAnchor="middle"
+                      fontSize="1.6"
+                      fontWeight="bold"
+                      fill={ringColor}
+                      className="font-sans pointer-events-none select-none"
+                    >
+                      {zone.label}
+                    </text>
+                  </g>
+                </g>
+              );
+            })}
+          </g>
+        )}
+
         {/* ================= Offensive Player Tokens ================= */}
         {(Object.entries(play.players) as [string, PlayerAssignment][]).map(([key, player]) => {
           const currentPos = getPlayerCurrentPosition(key);
@@ -800,31 +902,66 @@ export const FieldBoard: React.FC<FieldBoardProps> = ({
           const isPrimary = player.route.isPrimary;
           const isBallCarrier = player.route.isBallCarrier;
 
-          // Color token based on position
-          let tokenBg = '#1e293b';
+          // Lookup assigned player from roster
+          const rosterPlayer = getPlayerAssignedToSlot(key, roster);
+          const jerseyNum = rosterPlayer ? rosterPlayer.jerseyNumber : null;
+
+          // Determine token text based on tokenDisplayMode and roster assignment
+          let tokenMainText = key;
+          let isJerseyRendered = false;
+
+          if (tokenDisplayMode === 'jersey' && jerseyNum) {
+            tokenMainText = `${jerseyNum}`;
+            isJerseyRendered = true;
+          } else if (tokenDisplayMode === 'both' && jerseyNum) {
+            tokenMainText = `${jerseyNum}`;
+            isJerseyRendered = true;
+          } else if (tokenDisplayMode === 'name' && rosterPlayer) {
+            const lastName = rosterPlayer.name.split(' ').pop() || rosterPlayer.name;
+            tokenMainText = lastName.slice(0, 4).toUpperCase();
+          } else if (jerseyNum) {
+            // Default: if jersey number exists, show key or jersey based on mode
+            tokenMainText = key;
+          }
+
+          // Subtitle / Tooltip text
+          let subLabelText = player.label.split(' ')[0];
+          if (rosterPlayer) {
+            const lastName = rosterPlayer.name.split(' ').pop() || rosterPlayer.name;
+            if (tokenDisplayMode === 'jersey' || tokenDisplayMode === 'both') {
+              subLabelText = `${lastName} (${key})`;
+            } else if (tokenDisplayMode === 'position') {
+              subLabelText = `#${rosterPlayer.jerseyNumber} ${lastName}`;
+            } else {
+              subLabelText = `#${rosterPlayer.jerseyNumber} ${key}`;
+            }
+          }
+
+          // Color token based on position or custom player avatar color
+          let tokenBg = rosterPlayer?.avatarColor || '#1e293b';
           let tokenBorder = '#94a3b8';
           let textColor = '#ffffff';
 
           if (key === 'QB') {
-            tokenBg = '#dc2626'; // Red for QB
+            tokenBg = rosterPlayer?.avatarColor || '#dc2626'; // Red for QB
             tokenBorder = '#fca5a5';
           } else if (key === 'C') {
-            tokenBg = '#475569'; // Slate for Center
+            tokenBg = rosterPlayer?.avatarColor || '#475569'; // Slate for Center
             tokenBorder = '#cbd5e1';
           } else if (isBallCarrier) {
             tokenBg = '#ea580c'; // Orange for carrier
             tokenBorder = '#fdba74';
           } else if (isPrimary) {
-            tokenBg = '#0284c7'; // Sky for Primary
+            tokenBg = rosterPlayer?.avatarColor || '#0284c7'; // Sky for Primary
             tokenBorder = '#7dd3fc';
           } else if (player.route.isSecondary) {
-            tokenBg = '#059669'; // Emerald for Secondary
+            tokenBg = rosterPlayer?.avatarColor || '#059669'; // Emerald for Secondary
             tokenBorder = '#6ee7b7';
           } else if (key.includes('RB') || key.includes('HB')) {
-            tokenBg = '#7c3aed'; // Purple for Backs
+            tokenBg = rosterPlayer?.avatarColor || '#7c3aed'; // Purple for Backs
             tokenBorder = '#c4b5fd';
           } else {
-            tokenBg = '#0f172a';
+            tokenBg = rosterPlayer?.avatarColor || '#0f172a';
             tokenBorder = '#38bdf8';
           }
 
@@ -843,9 +980,9 @@ export const FieldBoard: React.FC<FieldBoardProps> = ({
                 <circle
                   cx={currentPos.x}
                   cy={currentPos.y}
-                  r="4"
+                  r="4.2"
                   fill={isSelected ? '#facc15' : (isBallCarrier ? '#ef4444' : '#38bdf8')}
-                  opacity="0.25"
+                  opacity="0.3"
                   className="animate-pulse"
                 />
               )}
@@ -854,38 +991,53 @@ export const FieldBoard: React.FC<FieldBoardProps> = ({
               <circle
                 cx={currentPos.x}
                 cy={currentPos.y}
-                r="2.6"
+                r="2.8"
                 fill={tokenBg}
                 stroke={tokenBorder}
-                strokeWidth={isSelected ? '0.8' : '0.55'}
+                strokeWidth={isSelected ? '0.9' : '0.6'}
                 className="transition-all duration-75 group-hover:scale-110"
               />
 
-              {/* Player Position Label Text */}
+              {/* Player Position / Jersey # Label Text */}
               <text
                 x={currentPos.x}
-                y={currentPos.y + 0.9}
+                y={currentPos.y + (tokenMainText.length > 2 ? 0.7 : 0.95)}
                 textAnchor="middle"
-                fontSize="1.9"
-                fontWeight="800"
+                fontSize={tokenMainText.length > 2 ? '1.6' : '2.0'}
+                fontWeight="900"
                 fill={textColor}
-                className="font-mono pointer-events-none select-none tracking-tight"
+                className="font-mono pointer-events-none select-none tracking-tighter"
               >
-                {key}
+                {tokenMainText}
               </text>
+
+              {/* Small '#' badge indicator in top right if jersey number is shown */}
+              {isJerseyRendered && (
+                <text
+                  x={currentPos.x + 2.2}
+                  y={currentPos.y - 1.5}
+                  textAnchor="middle"
+                  fontSize="1.1"
+                  fontWeight="800"
+                  fill="#facc15"
+                  className="font-mono pointer-events-none select-none"
+                >
+                  #
+                </text>
+              )}
 
               {/* Tag tooltip label below player if active */}
               {showLabels && (
                 <text
                   x={currentPos.x}
-                  y={currentPos.y + 4.8}
+                  y={currentPos.y + 5.1}
                   textAnchor="middle"
-                  fontSize="1.6"
-                  fontWeight="600"
-                  fill="#e2e8f0"
+                  fontSize="1.55"
+                  fontWeight="700"
+                  fill="#f8fafc"
                   className="font-sans pointer-events-none select-none drop-shadow"
                 >
-                  {player.label.split(' ')[0]}
+                  {subLabelText}
                 </text>
               )}
             </g>
@@ -903,14 +1055,45 @@ export const FieldBoard: React.FC<FieldBoardProps> = ({
         </div>
       </div>
 
-      {/* Fullscreen & Whiteboard Mode Toggle Buttons (Top Right) */}
+      {/* Fullscreen, Whiteboard, Roster & Coaching Mode Toggle Buttons (Top Right) */}
       <div className="absolute top-3 right-3 z-30 flex items-center gap-2">
+        {onToggleCoachingOverlay && (
+          <button
+            id="fieldboard-coaching-tips-btn"
+            onClick={() => onToggleCoachingOverlay(!isCoachingOverlayOpen)}
+            title="Toggle Video Tutorial HUD & Coaching Tips Overlay on Field"
+            className={`backdrop-blur-md px-2.5 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5 text-xs font-bold transition-all active:scale-95 border cursor-pointer ${
+              isCoachingOverlayOpen
+                ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 border-amber-300 shadow-amber-950/40'
+                : 'bg-slate-900/85 hover:bg-slate-800 text-amber-300 hover:text-amber-200 border-amber-500/50 shadow-slate-950/40'
+            }`}
+          >
+            <GraduationCap className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden sm:inline">Tips HUD</span>
+            {isCoachingOverlayOpen && (
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+            )}
+          </button>
+        )}
+
+        {onOpenRoster && (
+          <button
+            id="fieldboard-open-roster-btn"
+            onClick={onOpenRoster}
+            title="Open Roster & Jersey Numbers Management"
+            className="backdrop-blur-md px-2.5 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5 text-xs font-bold transition-all active:scale-95 border bg-blue-600/90 hover:bg-blue-600 text-white border-blue-400/50 shadow-blue-950/40 cursor-pointer"
+          >
+            <Users className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Roster (#{tokenDisplayMode.toUpperCase()})</span>
+          </button>
+        )}
+
         {onOpenWhiteboard && (
           <button
             id="fieldboard-draw-whiteboard-btn"
             onClick={onOpenWhiteboard}
             title="Draw Play on Tactical Whiteboard (Tablet / Touch Pen Mode)"
-            className="backdrop-blur-md px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5 text-xs font-bold transition-all active:scale-95 border bg-emerald-600/90 hover:bg-emerald-600 text-white border-emerald-400/50 shadow-emerald-950/40"
+            className="backdrop-blur-md px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5 text-xs font-bold transition-all active:scale-95 border bg-emerald-600/90 hover:bg-emerald-600 text-white border-emerald-400/50 shadow-emerald-950/40 cursor-pointer"
           >
             <PenTool className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Whiteboard</span>
@@ -921,7 +1104,7 @@ export const FieldBoard: React.FC<FieldBoardProps> = ({
           id="fieldboard-fullscreen-toggle-btn"
           onClick={toggleFullscreen}
           title={isFullscreen ? 'Exit Full Screen (ESC)' : 'Full Screen'}
-          className={`backdrop-blur-md px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5 text-xs font-bold transition-all active:scale-95 border ${
+          className={`backdrop-blur-md px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5 text-xs font-bold transition-all active:scale-95 border cursor-pointer ${
             isFullscreen
               ? 'bg-red-600/90 hover:bg-red-600 text-white border-red-400/50 shadow-red-600/30'
               : 'bg-slate-900/85 hover:bg-slate-800 text-slate-200 hover:text-white border-slate-700/60 hover:border-slate-500 shadow-slate-950/40'
@@ -943,27 +1126,57 @@ export const FieldBoard: React.FC<FieldBoardProps> = ({
 
       {/* Selected Player Detail Badge (Bottom Center) */}
       {selectedPlayerId && play.players[selectedPlayerId] && (
-        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md border border-amber-500/50 rounded-xl px-4 py-2 shadow-2xl flex items-center gap-3 text-xs animate-in fade-in zoom-in-95 duration-150 z-20">
-          <div className="w-6 h-6 rounded-full bg-amber-500 text-slate-950 font-mono font-bold flex items-center justify-center">
-            {selectedPlayerId}
-          </div>
-          <div>
-            <div className="font-bold text-slate-100 flex items-center gap-1.5">
-              <span>{play.players[selectedPlayerId].label}</span>
-              <span className="text-slate-400">({play.players[selectedPlayerId].positionName})</span>
+        (() => {
+          const selPlayer = play.players[selectedPlayerId];
+          const assignedRosterPlayer = getPlayerAssignedToSlot(selectedPlayerId, roster);
+
+          return (
+            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md border border-amber-500/50 rounded-xl px-4 py-2 shadow-2xl flex items-center gap-3 text-xs animate-in fade-in zoom-in-95 duration-150 z-20">
+              <div
+                className="w-7 h-7 rounded-lg text-white font-mono font-black flex items-center justify-center shadow-xs"
+                style={{ backgroundColor: assignedRosterPlayer?.avatarColor || '#ea580c' }}
+              >
+                {assignedRosterPlayer ? `#${assignedRosterPlayer.jerseyNumber}` : selectedPlayerId}
+              </div>
+              <div>
+                <div className="font-bold text-slate-100 flex items-center gap-1.5">
+                  {assignedRosterPlayer && (
+                    <span className="text-amber-300 font-extrabold">{assignedRosterPlayer.name}</span>
+                  )}
+                  <span>({selPlayer.label})</span>
+                  <span className="text-slate-400 text-[11px] font-normal">
+                    {selPlayer.positionName}
+                  </span>
+                </div>
+                <div className="text-sky-400 font-medium font-mono text-[11px]">
+                  Route: {selPlayer.route.name}
+                  {selPlayer.route.routeNumber !== undefined && ` [Route #${selPlayer.route.routeNumber}]`}
+                </div>
+              </div>
+              <button
+                onClick={() => onSelectPlayer?.(null)}
+                className="ml-2 text-slate-400 hover:text-slate-200 text-xs underline cursor-pointer"
+              >
+                Clear
+              </button>
             </div>
-            <div className="text-amber-400 font-medium font-mono">
-              Route: {play.players[selectedPlayerId].route.name}
-            </div>
-          </div>
-          <button
-            onClick={() => onSelectPlayer?.(null)}
-            className="ml-2 text-slate-400 hover:text-slate-200 text-xs underline"
-          >
-            Clear
-          </button>
-        </div>
+          );
+        })()
       )}
+
+      {/* ================= Floating Coaching Video Tutorial Overlay (HUD) ================= */}
+      {isCoachingOverlayOpen && (
+        <CoachingVideoOverlay
+          concept={activeConcept}
+          allAvailableConcepts={matchedConcepts.length > 0 ? matchedConcepts : ROUTE_CONCEPTS_DATABASE}
+          onSelectConcept={(c) => onSelectRouteConceptId?.(c.id)}
+          onOpenFullModal={() => onOpenCoachingModal?.()}
+          onClose={() => onToggleCoachingOverlay?.(false)}
+          showFieldHighlights={showCoachingFieldHighlights}
+          onToggleFieldHighlights={(val) => setShowCoachingFieldHighlights(val)}
+        />
+      )}
+
     </div>
   );
 

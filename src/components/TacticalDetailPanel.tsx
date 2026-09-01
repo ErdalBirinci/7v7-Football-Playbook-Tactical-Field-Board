@@ -1,5 +1,8 @@
-import React, { useState } from 'react';
-import { Play, PlayerAssignment } from '../types';
+import React, { useState, useMemo } from 'react';
+import { Play, PlayerAssignment, RosterPlayer } from '../types';
+import { getPlayerAssignedToSlot } from '../data/rosterData';
+import { getDrillsForPlay } from '../data/drillDatabase';
+import { detectConceptsForPlay } from '../data/routeConceptsData';
 import {
   BookOpen,
   Target,
@@ -9,6 +12,13 @@ import {
   HelpCircle,
   Sparkles,
   Download,
+  Dumbbell,
+  Clock,
+  ArrowRight,
+  Printer,
+  Users,
+  GraduationCap,
+  Tv,
 } from 'lucide-react';
 
 interface TacticalDetailPanelProps {
@@ -16,6 +26,13 @@ interface TacticalDetailPanelProps {
   selectedPlayerId: string | null;
   onSelectPlayer: (id: string | null) => void;
   onOpenRouteTree?: () => void;
+  onOpenDrills?: () => void;
+  onOpenPrintLayout?: () => void;
+  roster?: RosterPlayer[];
+  onOpenRoster?: () => void;
+  onOpenCoachingTips?: () => void;
+  onToggleCoachingOverlay?: () => void;
+  isCoachingOverlayOpen?: boolean;
 }
 
 export const TacticalDetailPanel: React.FC<TacticalDetailPanelProps> = ({
@@ -23,9 +40,26 @@ export const TacticalDetailPanel: React.FC<TacticalDetailPanelProps> = ({
   selectedPlayerId,
   onSelectPlayer,
   onOpenRouteTree,
+  onOpenDrills,
+  onOpenPrintLayout,
+  roster = [],
+  onOpenRoster,
+  onOpenCoachingTips,
+  onToggleCoachingOverlay,
+  isCoachingOverlayOpen = false,
 }) => {
   const [isExporting, setIsExporting] = useState(false);
   const [downloadSuccess, setDownloadSuccess] = useState(false);
+
+  // Detect applicable route concepts
+  const matchedConcepts = useMemo(() => {
+    return detectConceptsForPlay(play);
+  }, [play]);
+
+  // Get matched drills for this play
+  const { primaryDrills, analysis } = useMemo(() => {
+    return getDrillsForPlay(play);
+  }, [play]);
 
   // Convert SVG to Canvas and export PNG image using canvas.toBlob
   const handleExportPNG = () => {
@@ -119,7 +153,19 @@ export const TacticalDetailPanel: React.FC<TacticalDetailPanelProps> = ({
           </p>
         </div>
 
-        <div className="shrink-0">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {onOpenPrintLayout && (
+            <button
+              id="print-play-sheet-btn"
+              onClick={onOpenPrintLayout}
+              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-mono font-bold bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 transition-all shadow-xs active:scale-95 cursor-pointer"
+              title="Open clean, printer-friendly A4 / Letter installation layout"
+            >
+              <Printer className="w-4 h-4 text-slate-700" />
+              <span>Print Layout (A4/Letter)</span>
+            </button>
+          )}
+
           <button
             id="download-play-diagram-btn"
             onClick={handleExportPNG}
@@ -152,14 +198,63 @@ export const TacticalDetailPanel: React.FC<TacticalDetailPanelProps> = ({
       </div>
 
       {/* Concept & Description */}
-      <div className="bg-slate-50/80 rounded-xl p-4 border border-slate-200/80 space-y-2">
-        <div className="flex items-center gap-2 text-xs font-bold text-blue-700 uppercase tracking-wider">
-          <Sparkles className="w-3.5 h-3.5" />
-          <span>Tactical Concept</span>
+      <div className="bg-slate-50/80 rounded-xl p-4 border border-slate-200/80 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-xs font-bold text-blue-700 uppercase tracking-wider">
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Tactical Concept</span>
+          </div>
+
+          {onOpenCoachingTips && (
+            <button
+              id="open-coaching-tips-detail-btn"
+              onClick={onOpenCoachingTips}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 transition-all active:scale-95 cursor-pointer shadow-2xs"
+            >
+              <GraduationCap className="w-3.5 h-3.5 text-amber-600" />
+              <span>Coaching Video &amp; Tips</span>
+            </button>
+          )}
         </div>
+
         <p className="text-xs text-slate-700 leading-relaxed font-sans">
           {play.description}
         </p>
+
+        {/* Matched Concept Badges & Quick HUD Overlay Toggle */}
+        {matchedConcepts.length > 0 && (
+          <div className="pt-2 border-t border-slate-200/70 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] font-mono text-slate-500 font-medium">Concept:</span>
+              {matchedConcepts.map((concept) => (
+                <button
+                  key={`panel-concept-${concept.id}`}
+                  onClick={onOpenCoachingTips}
+                  className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-100 hover:bg-blue-200 text-blue-900 border border-blue-300 transition-all cursor-pointer flex items-center gap-1"
+                  title={`View ${concept.name} video tutorial & coach breakdown`}
+                >
+                  <span>{concept.name}</span>
+                  <Tv className="w-2.5 h-2.5 opacity-70" />
+                </button>
+              ))}
+            </div>
+
+            {onToggleCoachingOverlay && (
+              <button
+                id="panel-toggle-overlay-hud-btn"
+                onClick={onToggleCoachingOverlay}
+                className={`text-[11px] font-mono font-bold px-2.5 py-1 rounded-lg border transition-all cursor-pointer flex items-center gap-1 ${
+                  isCoachingOverlayOpen
+                    ? 'bg-amber-500 text-slate-950 border-amber-400 font-extrabold shadow-xs'
+                    : 'bg-white text-slate-700 hover:bg-slate-100 border-slate-300'
+                }`}
+              >
+                <Tv className="w-3 h-3" />
+                <span>{isCoachingOverlayOpen ? 'HUD Overlay (ON)' : 'Field Video HUD'}</span>
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* QB Progression Reads */}
@@ -213,23 +308,35 @@ export const TacticalDetailPanel: React.FC<TacticalDetailPanelProps> = ({
             <Compass className="w-4 h-4 text-blue-600" />
             <span>Player Assignments &amp; Routes</span>
           </div>
-          {onOpenRouteTree && (
-            <button
-              onClick={onOpenRouteTree}
-              className="text-[11px] font-mono text-blue-600 hover:text-blue-800 font-medium underline flex items-center gap-1"
-            >
-              <BookOpen className="w-3 h-3" />
-              Route Tree Guide (0-9)
-            </button>
-          )}
+          <div className="flex items-center gap-3">
+            {onOpenRoster && (
+              <button
+                id="panel-manage-roster-btn"
+                onClick={onOpenRoster}
+                className="text-[11px] font-mono text-blue-600 hover:text-blue-800 font-bold flex items-center gap-1 hover:underline cursor-pointer"
+              >
+                <Users className="w-3 h-3" />
+                Manage Roster
+              </button>
+            )}
+            {onOpenRouteTree && (
+              <button
+                onClick={onOpenRouteTree}
+                className="text-[11px] font-mono text-blue-600 hover:text-blue-800 font-medium underline flex items-center gap-1 cursor-pointer"
+              >
+                <BookOpen className="w-3 h-3" />
+                Route Tree (0-9)
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="border-b border-slate-200 text-[11px] font-mono text-slate-500">
-                <th className="py-2 px-2.5">Pos</th>
-                <th className="py-2 px-2.5">Player</th>
+                <th className="py-2 px-2.5">Slot</th>
+                <th className="py-2 px-2.5">Jersey / Athlete</th>
                 <th className="py-2 px-2.5">Route / Action</th>
                 <th className="py-2 px-2.5">Role Details</th>
               </tr>
@@ -237,6 +344,8 @@ export const TacticalDetailPanel: React.FC<TacticalDetailPanelProps> = ({
             <tbody className="divide-y divide-slate-100 font-sans">
               {(Object.entries(play.players) as [string, PlayerAssignment][]).map(([key, player]) => {
                 const isSelected = selectedPlayerId === key;
+                const assignedRosterPlayer = getPlayerAssignedToSlot(key, roster);
+
                 return (
                   <tr
                     key={`table-pos-${key}`}
@@ -252,8 +361,29 @@ export const TacticalDetailPanel: React.FC<TacticalDetailPanelProps> = ({
                         {key}
                       </span>
                     </td>
-                    <td className="py-2 px-2.5 text-slate-900 font-medium">
-                      {player.label}
+                    <td className="py-2 px-2.5">
+                      <div className="flex items-center gap-2">
+                        {assignedRosterPlayer ? (
+                          <>
+                            <span
+                              className="w-5 h-5 rounded-md font-mono text-[11px] font-black text-white flex items-center justify-center shadow-2xs"
+                              style={{ backgroundColor: assignedRosterPlayer.avatarColor || '#3b82f6' }}
+                            >
+                              #{assignedRosterPlayer.jerseyNumber}
+                            </span>
+                            <div>
+                              <div className="text-slate-900 font-bold text-xs leading-none">
+                                {assignedRosterPlayer.name}
+                              </div>
+                              <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                                {player.label}
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <span className="text-slate-900 font-medium">{player.label}</span>
+                        )}
+                      </div>
                     </td>
                     <td className="py-2 px-2.5">
                       <span
@@ -278,6 +408,60 @@ export const TacticalDetailPanel: React.FC<TacticalDetailPanelProps> = ({
           </table>
         </div>
       </div>
+
+      {/* Field Practice Drill Generator Recommendations */}
+      {onOpenDrills && (
+        <div className="bg-gradient-to-r from-amber-50/90 to-amber-100/60 rounded-xl p-4 border border-amber-300/80 shadow-xs space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-amber-500 text-white shadow-xs">
+                <Dumbbell className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-amber-950 uppercase tracking-wide">
+                  Suggested Practice Drills ({primaryDrills.length} Matched)
+                </h4>
+                <p className="text-[11px] text-amber-800">
+                  Translate {play.code} routes into on-field practice periods
+                </p>
+              </div>
+            </div>
+
+            <button
+              id="open-drills-from-detail-btn"
+              onClick={onOpenDrills}
+              className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm active:scale-95 shrink-0"
+            >
+              <span>Launch Drill Generator</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 pt-1">
+            {primaryDrills.slice(0, 3).map((drill) => (
+              <div
+                key={`mini-drill-${drill.id}`}
+                onClick={onOpenDrills}
+                className="p-2.5 rounded-lg bg-white/90 border border-amber-200 hover:border-amber-400 hover:shadow-xs transition-all cursor-pointer space-y-1"
+              >
+                <div className="flex items-center justify-between text-[10px] font-mono text-amber-800 font-bold">
+                  <span className="truncate">{drill.category.replace('_', ' ')}</span>
+                  <span className="flex items-center gap-0.5 text-slate-500">
+                    <Clock className="w-2.5 h-2.5" />
+                    {drill.estimatedMinutes}m
+                  </span>
+                </div>
+                <div className="text-xs font-bold text-slate-900 leading-snug line-clamp-1">
+                  {drill.name}
+                </div>
+                <div className="text-[10px] text-slate-500 truncate">
+                  {drill.targetPositions.join(', ')} • {drill.difficulty.split('/')[0]}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Coaching Points */}
       {play.coachingPoints && play.coachingPoints.length > 0 && (

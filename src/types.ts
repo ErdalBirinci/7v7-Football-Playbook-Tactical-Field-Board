@@ -123,3 +123,18 @@ export interface FormationTemplate {
   playerPositions: Record<string, FormationTemplatePlayerPosition>;
 }
 
+export type TokenDisplayMode = 'jersey' | 'position' | 'both' | 'name';
+
+export interface RosterPlayer {
+  id: string;
+  name: string;
+  jerseyNumber: string; // e.g. "15", "87", "1", "10", "7", "23"
+  primaryPosition: 'QB' | 'WR' | 'SLOT' | 'RB' | 'C' | 'TE' | 'ATH';
+  assignedSlot: string | null; // 'QB' | 'C' | 'X' | 'Z' | 'H' | 'Y' | 'RB' | 'HB' | null
+  status: 'starter' | 'substitute' | 'injured';
+  speedRating?: number; // 1-99
+  handsRating?: number; // 1-99
+  notes?: string;
+  avatarColor?: string;
+}
+

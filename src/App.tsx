@@ -1,7 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, DefenseScheme } from './types';
+import { Play, DefenseScheme, RosterPlayer, TokenDisplayMode } from './types';
 import { ALL_PLAYBOOK_PLAYS, getPlayById } from './data/allPlays';
 import { DEFENSE_SCHEMES } from './data/defenseSchemes';
+import {
+  loadRosterFromStorage,
+  saveRosterToStorage,
+  loadTokenModeFromStorage,
+  saveTokenModeToStorage,
+} from './data/rosterData';
+import { detectConceptsForPlay } from './data/routeConceptsData';
 import { FieldBoard } from './components/FieldBoard';
 import { AnimationController } from './components/AnimationController';
 import { TacticalDetailPanel } from './components/TacticalDetailPanel';
@@ -12,6 +19,10 @@ import { PlaybookQuizModal } from './components/PlaybookQuizModal';
 import { WristbandExportModal } from './components/WristbandExportModal';
 import { CustomPlayDesigner } from './components/CustomPlayDesigner';
 import { CoachWhiteboard } from './components/CoachWhiteboard';
+import { DrillGeneratorModal } from './components/DrillGeneratorModal';
+import { PrintLayoutModal } from './components/PrintLayoutModal';
+import { RosterManagementModal } from './components/RosterManagementModal';
+import { CoachingTipsModal } from './components/CoachingTipsModal';
 import {
   BookOpen,
   Languages,
@@ -25,6 +36,11 @@ import {
   Minimize2,
   Layers,
   PenTool,
+  Dumbbell,
+  FileDown,
+  Users,
+  GraduationCap,
+  Tv,
 } from 'lucide-react';
 
 export default function App() {
@@ -33,6 +49,10 @@ export default function App() {
     // Default to Trips Pass Play 97 (Smash / 1 7 8)
     return getPlayById('trips-pass-97-right') || ALL_PLAYBOOK_PLAYS[0];
   });
+
+  // Roster & Jersey Numbers state
+  const [roster, setRoster] = useState<RosterPlayer[]>(() => loadRosterFromStorage());
+  const [tokenDisplayMode, setTokenDisplayMode] = useState<TokenDisplayMode>(() => loadTokenModeFromStorage());
 
   // Animation timeline state
   const [progress, setProgress] = useState(0); // 0 to 1
@@ -47,6 +67,11 @@ export default function App() {
   const [showZones, setShowZones] = useState(true);
   const [fieldTheme, setFieldTheme] = useState<'turf' | 'tactical' | 'chalkboard'>('tactical');
 
+  // Coaching tips & Video overlay state
+  const [isCoachingTipsOpen, setIsCoachingTipsOpen] = useState(false);
+  const [isCoachingOverlayOpen, setIsCoachingOverlayOpen] = useState(false);
+  const [activeRouteConceptId, setActiveRouteConceptId] = useState<string | undefined>(undefined);
+
   // Interactive selected player on field
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
 
@@ -57,6 +82,9 @@ export default function App() {
   const [isWristbandOpen, setIsWristbandOpen] = useState(false);
   const [isDesignerOpen, setIsDesignerOpen] = useState(false);
   const [isWhiteboardOpen, setIsWhiteboardOpen] = useState(false);
+  const [isDrillsOpen, setIsDrillsOpen] = useState(false);
+  const [isPrintLayoutOpen, setIsPrintLayoutOpen] = useState(false);
+  const [isRosterOpen, setIsRosterOpen] = useState(false);
 
   // Animation loop ref
   const animFrameRef = useRef<number | null>(null);
@@ -115,6 +143,24 @@ export default function App() {
     handleSelectPlay(newPlay);
   };
 
+  // Update Roster & Persist
+  const handleUpdateRoster = (newRoster: RosterPlayer[]) => {
+    setRoster(newRoster);
+    saveRosterToStorage(newRoster);
+  };
+
+  // Update Token Mode & Persist
+  const handleUpdateTokenMode = (mode: TokenDisplayMode) => {
+    setTokenDisplayMode(mode);
+    saveTokenModeToStorage(mode);
+  };
+
+  const handleToggleTokenMode = () => {
+    const modes: TokenDisplayMode[] = ['jersey', 'position', 'both', 'name'];
+    const nextIdx = (modes.indexOf(tokenDisplayMode) + 1) % modes.length;
+    handleUpdateTokenMode(modes[nextIdx]);
+  };
+
   // Keyboard shortcuts (Space to toggle play, Left/Right arrows to scrub)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -169,8 +215,33 @@ export default function App() {
           {/* Top Quick Utility Buttons */}
           <div className="flex items-center flex-wrap gap-2 text-xs">
             <button
+              id="top-roster-management-btn"
+              onClick={() => setIsRosterOpen(true)}
+              className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold border border-blue-500 flex items-center gap-1.5 transition-all shadow-sm shadow-blue-600/20 active:scale-95 cursor-pointer"
+              title="Manage 7v7 Roster, Depth Chart & Player Jersey Numbers"
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Roster &amp; Jerseys</span>
+              <span className="sm:hidden">Roster</span>
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-blue-800 text-blue-100">
+                {roster.filter((p) => p.assignedSlot).length}/7
+              </span>
+            </button>
+
+            <button
+              id="top-coaching-tips-btn"
+              onClick={() => setIsCoachingTipsOpen(true)}
+              className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black border border-amber-400 flex items-center gap-1.5 transition-all shadow-sm shadow-amber-500/20 active:scale-95 cursor-pointer"
+              title="Open Route Concept Video Tutorials & Coaching Tips Modal"
+            >
+              <GraduationCap className="w-3.5 h-3.5 text-slate-950" />
+              <span className="hidden sm:inline">Coaching Tips &amp; Video</span>
+              <span className="sm:hidden">Tips &amp; Video</span>
+            </button>
+
+            <button
               onClick={() => setIsRouteTreeOpen(true)}
-              className="px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-blue-700 font-medium border border-slate-200 flex items-center gap-1.5 transition-all shadow-2xs"
+              className="px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-blue-700 font-medium border border-slate-200 flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
             >
               <BookOpen className="w-3.5 h-3.5 text-blue-600" />
               <span className="hidden sm:inline">Route Tree (0-9)</span>
@@ -179,7 +250,7 @@ export default function App() {
 
             <button
               onClick={() => setIsGlossaryOpen(true)}
-              className="px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100/80 text-amber-800 font-medium border border-amber-200 flex items-center gap-1.5 transition-all shadow-2xs"
+              className="px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100/80 text-amber-800 font-medium border border-amber-200 flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
             >
               <Languages className="w-3.5 h-3.5 text-amber-600" />
               <span className="hidden sm:inline">EN-FI Glossary</span>
@@ -188,15 +259,26 @@ export default function App() {
 
             <button
               onClick={() => setIsQuizOpen(true)}
-              className="px-3 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100/80 text-purple-800 font-medium border border-purple-200 flex items-center gap-1.5 transition-all shadow-2xs"
+              className="px-3 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100/80 text-purple-800 font-medium border border-purple-200 flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
             >
               <Zap className="w-3.5 h-3.5 text-purple-600" />
               <span>Quiz Mode</span>
             </button>
 
             <button
+              id="top-drill-generator-btn"
+              onClick={() => setIsDrillsOpen(true)}
+              className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold border border-amber-400 flex items-center gap-1.5 transition-all shadow-sm shadow-amber-500/20 active:scale-95 cursor-pointer"
+              title="Generate practice drills matched to currently selected play"
+            >
+              <Dumbbell className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Drill Generator</span>
+              <span className="sm:hidden">Drills</span>
+            </button>
+
+            <button
               onClick={() => setIsWhiteboardOpen(true)}
-              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-1.5 transition-all shadow-sm shadow-emerald-600/20 active:scale-95"
+              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-1.5 transition-all shadow-sm shadow-emerald-600/20 active:scale-95 cursor-pointer"
             >
               <PenTool className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Draw Whiteboard</span>
@@ -205,7 +287,7 @@ export default function App() {
 
             <button
               onClick={() => setIsDesignerOpen(true)}
-              className="px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-indigo-700 font-semibold border border-slate-200 flex items-center gap-1.5 transition-all shadow-2xs"
+              className="px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-indigo-700 font-semibold border border-slate-200 flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
             >
               <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
               <span className="hidden sm:inline">Play Designer</span>
@@ -213,12 +295,23 @@ export default function App() {
             </button>
 
             <button
-              onClick={() => setIsWristbandOpen(true)}
-              className="px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 font-medium border border-slate-200 flex items-center gap-1.5 transition-all shadow-2xs"
+              id="top-print-layout-btn"
+              onClick={() => setIsPrintLayoutOpen(true)}
+              className="px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100/90 text-blue-800 font-bold border border-blue-200 flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+              title="Open clean, printer-friendly A4 / Letter installation layout"
             >
-              <Printer className="w-3.5 h-3.5 text-slate-600" />
-              <span className="hidden sm:inline">Wristband Call Sheet</span>
+              <Printer className="w-3.5 h-3.5 text-blue-600" />
+              <span className="hidden sm:inline">Print Layout</span>
               <span className="sm:hidden">Print</span>
+            </button>
+
+            <button
+              onClick={() => setIsWristbandOpen(true)}
+              className="px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 font-medium border border-slate-200 flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+            >
+              <FileDown className="w-3.5 h-3.5 text-slate-600" />
+              <span className="hidden sm:inline">Wristband Call Sheet</span>
+              <span className="sm:hidden">Wristband</span>
             </button>
           </div>
         </div>
@@ -244,6 +337,15 @@ export default function App() {
             onTogglePlay={() => setIsPlaying(!isPlaying)}
             onSeek={(p) => setProgress(p)}
             onOpenWhiteboard={() => setIsWhiteboardOpen(true)}
+            roster={roster}
+            tokenDisplayMode={tokenDisplayMode}
+            onToggleTokenMode={handleToggleTokenMode}
+            onOpenRoster={() => setIsRosterOpen(true)}
+            isCoachingOverlayOpen={isCoachingOverlayOpen}
+            onToggleCoachingOverlay={(open) => setIsCoachingOverlayOpen(open)}
+            onOpenCoachingModal={() => setIsCoachingTipsOpen(true)}
+            activeRouteConceptId={activeRouteConceptId}
+            onSelectRouteConceptId={(id) => setActiveRouteConceptId(id)}
           />
 
           {/* Interactive Animation Controller */}
@@ -274,6 +376,13 @@ export default function App() {
             selectedPlayerId={selectedPlayerId}
             onSelectPlayer={setSelectedPlayerId}
             onOpenRouteTree={() => setIsRouteTreeOpen(true)}
+            onOpenDrills={() => setIsDrillsOpen(true)}
+            onOpenPrintLayout={() => setIsPrintLayoutOpen(true)}
+            roster={roster}
+            onOpenRoster={() => setIsRosterOpen(true)}
+            onOpenCoachingTips={() => setIsCoachingTipsOpen(true)}
+            onToggleCoachingOverlay={() => setIsCoachingOverlayOpen(!isCoachingOverlayOpen)}
+            isCoachingOverlayOpen={isCoachingOverlayOpen}
           />
         </div>
 
@@ -349,6 +458,40 @@ export default function App() {
         onClose={() => setIsWhiteboardOpen(false)}
         currentPlay={selectedPlay}
         onSaveAsCustomPlay={handleSaveCustomPlay}
+      />
+
+      <DrillGeneratorModal
+        isOpen={isDrillsOpen}
+        onClose={() => setIsDrillsOpen(false)}
+        currentPlay={selectedPlay}
+      />
+
+      <PrintLayoutModal
+        isOpen={isPrintLayoutOpen}
+        onClose={() => setIsPrintLayoutOpen(false)}
+        play={selectedPlay}
+        roster={roster}
+        tokenDisplayMode={tokenDisplayMode}
+      />
+
+      <RosterManagementModal
+        isOpen={isRosterOpen}
+        onClose={() => setIsRosterOpen(false)}
+        roster={roster}
+        onUpdateRoster={handleUpdateRoster}
+        tokenDisplayMode={tokenDisplayMode}
+        onUpdateTokenDisplayMode={handleUpdateTokenMode}
+      />
+
+      <CoachingTipsModal
+        isOpen={isCoachingTipsOpen}
+        onClose={() => setIsCoachingTipsOpen(false)}
+        play={selectedPlay}
+        selectedPlay={selectedPlay}
+        isOverlayActive={isCoachingOverlayOpen}
+        onToggleOverlay={(val) => setIsCoachingOverlayOpen(val)}
+        selectedConceptId={activeRouteConceptId}
+        onSelectConceptId={(id) => setActiveRouteConceptId(id)}
       />
     </div>
   );

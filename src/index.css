@@ -1,1 +1,43 @@
 @import "tailwindcss";
+
+/* ================= PRINT MEDIA STYLES ================= */
+@page {
+  size: auto;
+  margin: 8mm 10mm 8mm 10mm;
+}
+
+@media print {
+  html, body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Hide everything marked as print:hidden */
+  .print\:hidden {
+    display: none !important;
+  }
+
+  /* Prevent awkward page breaks inside cards and tables */
+  #printable-play-sheet,
+  .printable-card,
+  table,
+  tr,
+  svg {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* Expand printable container to full width without scrollbars */
+  #printable-play-sheet {
+    box-shadow: none !important;
+    border: none !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 auto !important;
+  }
+}
