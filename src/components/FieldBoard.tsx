@@ -1,0 +1,871 @@
+import React, { useState, useRef, useEffect } from 'react';
+import { Play, DefensivePlayer, DefenseScheme, PlayerAssignment } from '../types';
+import { LucideIcon } from 'lucide-react';
+
+interface FieldBoardProps {
+  play: Play;
+  progress: number; // 0 to 1
+  isPlaying: boolean;
+  defenseScheme?: DefenseScheme | null;
+  showDefense: boolean;
+  showFullRoutes: boolean;
+  showLabels: boolean;
+  showZones: boolean;
+  selectedPlayerId?: string | null;
+  onSelectPlayer?: (playerId: string | null) => void;
+  fieldTheme: 'turf' | 'tactical' | 'chalkboard';
+}
+
+export const FieldBoard: React.FC<FieldBoardProps> = ({
+  play,
+  progress,
+  isPlaying,
+  defenseScheme,
+  showDefense,
+  showFullRoutes,
+  showLabels,
+  showZones,
+  selectedPlayerId,
+  onSelectPlayer,
+  fieldTheme,
+}) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Field dimensions in SVG units
+  // Field coordinate system: 0-100 X (width), 0-100 Y (length)
+  // End Zone: Y 0 to 15 (15 yds deep / goal line at 15)
+  // LOS is at Y = 65 (50 yard line marker)
+  // Backfield is Y 65 to 90
+
+  // Calculate current animated position of an offensive player based on timeline progress (0 to 1)
+  const getPlayerCurrentPosition = (playerKey: string) => {
+    const player = play.players[playerKey];
+    if (!player) return { x: 50, y: 75 };
+
+    const { initialPos, motion, route } = player;
+
+    // Phase 1: Pre-snap motion (progress 0 to 0.25)
+    if (motion) {
+      if (progress < 0.25) {
+        const motionProgress = progress / 0.25;
+        const curX = motion.startPos.x + (motion.endPos.x - motion.startPos.x) * motionProgress;
+        const curY = motion.startPos.y + (motion.endPos.y - motion.startPos.y) * motionProgress;
+        return { x: curX, y: curY };
+      }
+    }
+
+    // Phase 2: Post-snap route execution (progress 0.25 to 1.0)
+    const playProgress = motion ? Math.max(0, (progress - 0.25) / 0.75) : progress;
+    const points = route.points;
+
+    if (!points || points.length <= 1) {
+      return motion && progress >= 0.25 ? motion.endPos : initialPos;
+    }
+
+    // Total route path length approximation
+    let totalLength = 0;
+    const segmentLengths: number[] = [];
+    for (let i = 0; i < points.length - 1; i++) {
+      const dx = points[i + 1].x - points[i].x;
+      const dy = points[i + 1].y - points[i].y;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      segmentLengths.push(len);
+      totalLength += len;
+    }
+
+    if (totalLength === 0) return points[0];
+
+    const targetDistance = totalLength * playProgress;
+    let accumulated = 0;
+
+    for (let i = 0; i < segmentLengths.length; i++) {
+      const segLen = segmentLengths[i];
+      if (accumulated + segLen >= targetDistance) {
+        const segProgress = segLen > 0 ? (targetDistance - accumulated) / segLen : 0;
+        const p1 = points[i];
+        const p2 = points[i + 1];
+        return {
+          x: p1.x + (p2.x - p1.x) * segProgress,
+          y: p1.y + (p2.y - p1.y) * segProgress,
+        };
+      }
+      accumulated += segLen;
+    }
+
+    return points[points.length - 1];
+  };
+
+  // Convert route points to smooth SVG path 'd' string
+  const getRouteSvgPath = (points: { x: number; y: number }[]) => {
+    if (!points || points.length === 0) return '';
+    if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+    if (points.length === 2) {
+      return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
+    }
+
+    // Smooth spline
+    let d = `M ${points[0].x} ${points[0].y}`;
+    for (let i = 1; i < points.length; i++) {
+      const p0 = points[i - 1];
+      const p1 = points[i];
+      d += ` L ${p1.x} ${p1.y}`;
+    }
+    return d;
+  };
+
+  // Calculate ball position during play animation
+  const getBallPosition = () => {
+    const qbPos = getPlayerCurrentPosition('QB');
+    // If progress is early (0 to 0.45), QB holds ball
+    if (progress < 0.45) {
+      return { x: qbPos.x, y: qbPos.y - 1.5 };
+    }
+
+    // If it's a run play or ball carrier exists
+    const ballCarrierKey = Object.keys(play.players).find(
+      (k) => play.players[k].route.isBallCarrier
+    );
+    if (ballCarrierKey) {
+      const carrierPos = getPlayerCurrentPosition(ballCarrierKey);
+      return { x: carrierPos.x, y: carrierPos.y - 1.5 };
+    }
+
+    // If it's a pass play, ball travels from QB to primary receiver between progress 0.45 and 0.85
+    const primaryKey = Object.keys(play.players).find(
+      (k) => play.players[k].route.isPrimary
+    ) || 'Z';
+    const targetPlayer = play.players[primaryKey];
+    if (targetPlayer) {
+      const targetPos = getPlayerCurrentPosition(primaryKey);
+      const throwProgress = Math.min(1, Math.max(0, (progress - 0.45) / 0.4));
+      // Parabolic throw arc effect
+      const arcHeight = Math.sin(throwProgress * Math.PI) * 8;
+      return {
+        x: qbPos.x + (targetPos.x - qbPos.x) * throwProgress,
+        y: qbPos.y + (targetPos.y - qbPos.y) * throwProgress - arcHeight,
+      };
+    }
+
+    return { x: qbPos.x, y: qbPos.y - 1.5 };
+  };
+
+  const ballPos = getBallPosition();
+
+  // Background styling based on theme
+  const getThemeBg = () => {
+    switch (fieldTheme) {
+      case 'turf':
+        return 'bg-gradient-to-b from-[#14532d] via-[#166534] to-[#14532d]';
+      case 'chalkboard':
+        return 'bg-gradient-to-b from-slate-800 via-slate-700 to-slate-800';
+      case 'tactical':
+      default:
+        return 'bg-gradient-to-b from-[#0f172a] via-[#1e293b] to-[#0f172a]';
+    }
+  };
+
+  const getLineColor = () => {
+    switch (fieldTheme) {
+      case 'turf':
+        return 'stroke-emerald-200/50';
+      case 'chalkboard':
+        return 'stroke-slate-200/50';
+      case 'tactical':
+      default:
+        return 'stroke-sky-300/40';
+    }
+  };
+
+  const lineStroke = getLineColor();
+
+  return (
+    <div
+      ref={containerRef}
+      id="tactical-field-board"
+      className={`relative w-full aspect-[4/3] sm:aspect-[16/10] md:aspect-[16/9] rounded-2xl overflow-hidden shadow-md border border-slate-300 select-none ${getThemeBg()}`}
+    >
+      <svg
+        id="fieldboard-svg-canvas"
+        viewBox="0 0 100 100"
+        preserveAspectRatio="xMidYMid meet"
+        className="w-full h-full"
+      >
+        <defs>
+          {/* Arrowhead Markers */}
+          <marker
+            id="arrow-primary"
+            viewBox="0 0 10 10"
+            refX="6"
+            refY="5"
+            markerWidth="4"
+            markerHeight="4"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#38bdf8" />
+          </marker>
+          <marker
+            id="arrow-secondary"
+            viewBox="0 0 10 10"
+            refX="6"
+            refY="5"
+            markerWidth="4"
+            markerHeight="4"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#10b981" />
+          </marker>
+          <marker
+            id="arrow-amber"
+            viewBox="0 0 10 10"
+            refX="6"
+            refY="5"
+            markerWidth="4"
+            markerHeight="4"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#f59e0b" />
+          </marker>
+          <marker
+            id="arrow-pink"
+            viewBox="0 0 10 10"
+            refX="6"
+            refY="5"
+            markerWidth="4"
+            markerHeight="4"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#ec4899" />
+          </marker>
+          <marker
+            id="arrow-purple"
+            viewBox="0 0 10 10"
+            refX="6"
+            refY="5"
+            markerWidth="4"
+            markerHeight="4"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#a855f7" />
+          </marker>
+          <marker
+            id="arrow-runner"
+            viewBox="0 0 10 10"
+            refX="6"
+            refY="5"
+            markerWidth="4.5"
+            markerHeight="4.5"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#ef4444" />
+          </marker>
+          <marker
+            id="arrow-motion"
+            viewBox="0 0 10 10"
+            refX="6"
+            refY="5"
+            markerWidth="3.5"
+            markerHeight="3.5"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#fb923c" />
+          </marker>
+
+          {/* Glow Filters */}
+          <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="1.5" result="blur" />
+            <feComposite in="SourceGraphic" in2="blur" operator="over" />
+          </filter>
+        </defs>
+
+        {/* Base Canvas Field Background for Export and Rendering */}
+        <rect
+          x="0"
+          y="0"
+          width="100"
+          height="100"
+          fill={fieldTheme === 'turf' ? '#14532d' : fieldTheme === 'chalkboard' ? '#1e293b' : '#0f172a'}
+        />
+
+        {/* ================= Field Markings ================= */}
+        {/* Endzone */}
+        <rect
+          x="0"
+          y="0"
+          width="100"
+          height="12"
+          fill={fieldTheme === 'turf' ? '#064e3b' : '#0f172a'}
+          opacity="0.8"
+        />
+        {/* Endzone Diagonal Stripes */}
+        {Array.from({ length: 9 }).map((_, i) => (
+          <line
+            key={`ez-stripe-${i}`}
+            x1={i * 12}
+            y1="0"
+            x2={i * 12 + 15}
+            y2="12"
+            stroke="rgba(255,255,255,0.06)"
+            strokeWidth="0.8"
+          />
+        ))}
+        <text
+          x="50"
+          y="8"
+          textAnchor="middle"
+          fontSize="4.5"
+          fontWeight="bold"
+          fill="rgba(255,255,255,0.25)"
+          letterSpacing="0.4em"
+          className="font-display uppercase"
+        >
+          END ZONE
+        </text>
+
+        {/* Goal Line */}
+        <line x1="0" y1="12" x2="100" y2="12" stroke="#ffffff" strokeWidth="0.8" />
+
+        {/* Yard Lines (every 10 yards: 12, 22.6, 33.2, 43.8, 54.4, 65, 75.6, 86.2, 96.8) */}
+        {[
+          { y: 22, yard: '10' },
+          { y: 32, yard: '20' },
+          { y: 42, yard: '30' },
+          { y: 52, yard: '40' },
+          { y: 65, yard: '50' }, // Line of Scrimmage
+          { y: 76, yard: '40' },
+          { y: 88, yard: '30' },
+        ].map((line, idx) => (
+          <g key={`yardline-${idx}`}>
+            <line
+              x1="0"
+              y1={line.y}
+              x2="100"
+              y2={line.y}
+              className={lineStroke}
+              strokeWidth={line.y === 65 ? '0.7' : '0.35'}
+              strokeDasharray={line.y === 65 ? undefined : '1.5,1.5'}
+            />
+            {/* Yard Numbers on Left and Right */}
+            {line.y !== 65 && (
+              <>
+                <text
+                  x="8"
+                  y={line.y + 1.2}
+                  fontSize="2.4"
+                  fontWeight="bold"
+                  fill="rgba(255,255,255,0.22)"
+                  textAnchor="middle"
+                  className="font-mono"
+                >
+                  {line.yard}
+                </text>
+                <text
+                  x="92"
+                  y={line.y + 1.2}
+                  fontSize="2.4"
+                  fontWeight="bold"
+                  fill="rgba(255,255,255,0.22)"
+                  textAnchor="middle"
+                  className="font-mono"
+                >
+                  {line.yard}
+                </text>
+              </>
+            )}
+          </g>
+        ))}
+
+        {/* College / Pro Hash Marks */}
+        {Array.from({ length: 30 }).map((_, i) => {
+          const yPos = 14 + i * 2.8;
+          if (yPos > 96) return null;
+          return (
+            <g key={`hash-${i}`} opacity="0.3">
+              <line x1="38" y1={yPos} x2="40" y2={yPos} stroke="#ffffff" strokeWidth="0.3" />
+              <line x1="60" y1={yPos} x2="62" y2={yPos} stroke="#ffffff" strokeWidth="0.3" />
+              <line x1="2" y1={yPos} x2="4" y2={yPos} stroke="#ffffff" strokeWidth="0.3" />
+              <line x1="96" y1={yPos} x2="98" y2={yPos} stroke="#ffffff" strokeWidth="0.3" />
+            </g>
+          );
+        })}
+
+        {/* Line of Scrimmage (LOS) Indicator Bar (Blue) */}
+        <line
+          x1="0"
+          y1="65"
+          x2="100"
+          y2="65"
+          stroke="#0284c7"
+          strokeWidth="0.9"
+          opacity="0.85"
+        />
+        <text
+          x="3"
+          y="64.2"
+          fontSize="2.2"
+          fontWeight="bold"
+          fill="#38bdf8"
+          className="font-mono"
+        >
+          LOS (Line of Scrimmage)
+        </text>
+
+        {/* First Down Line Indicator (Yellow - 10 yds downfield at y=52) */}
+        <line
+          x1="0"
+          y1="52"
+          x2="100"
+          y2="52"
+          stroke="#eab308"
+          strokeWidth="0.6"
+          strokeDasharray="2,1"
+          opacity="0.65"
+        />
+        <text
+          x="97"
+          y="51.2"
+          fontSize="2"
+          fontWeight="bold"
+          fill="#facc15"
+          textAnchor="end"
+          className="font-mono"
+        >
+          1st Down (Line to Gain)
+        </text>
+
+        {/* ================= Defensive Zones & Coverage Overlay ================= */}
+        {showDefense && defenseScheme && (
+          <g id="defensive-scheme-overlay">
+            {/* Zone Shading Areas */}
+            {showZones &&
+              defenseScheme.players
+                .filter((p) => p.zoneArea)
+                .map((defPlayer) => {
+                  const zone = defPlayer.zoneArea!;
+                  return (
+                    <g key={`zone-${defPlayer.id}`}>
+                      <rect
+                        x={zone.x}
+                        y={zone.y}
+                        width={zone.width}
+                        height={zone.height}
+                        rx="2"
+                        fill="rgba(244, 63, 94, 0.08)"
+                        stroke="rgba(244, 63, 94, 0.35)"
+                        strokeWidth="0.4"
+                        strokeDasharray="1.5,1.5"
+                      />
+                      <text
+                        x={zone.x + zone.width / 2}
+                        y={zone.y + zone.height / 2 + 1}
+                        textAnchor="middle"
+                        fontSize="2.2"
+                        fontWeight="600"
+                        fill="rgba(251, 113, 133, 0.6)"
+                        className="font-mono uppercase tracking-wider"
+                      >
+                        {zone.label}
+                      </text>
+                    </g>
+                  );
+                })}
+
+            {/* Man Coverage Tether Lines */}
+            {defenseScheme.players
+              .filter((p) => p.coverageType === 'man' && p.targetOffensivePlayerId)
+              .map((defPlayer) => {
+                const offPlayer = play.players[defPlayer.targetOffensivePlayerId!];
+                if (!offPlayer) return null;
+                const offPos = getPlayerCurrentPosition(defPlayer.targetOffensivePlayerId!);
+                return (
+                  <line
+                    key={`tether-${defPlayer.id}`}
+                    x1={defPlayer.initialPos.x}
+                    y1={defPlayer.initialPos.y}
+                    x2={offPos.x}
+                    y2={offPos.y}
+                    stroke="rgba(244, 63, 94, 0.25)"
+                    strokeWidth="0.4"
+                    strokeDasharray="1,1"
+                  />
+                );
+              })}
+
+            {/* Defensive Player Tokens */}
+            {defenseScheme.players.map((defPlayer) => {
+              // Calculate slight reaction towards ball or assignment
+              let defX = defPlayer.initialPos.x;
+              let defY = defPlayer.initialPos.y;
+
+              if (progress > 0.3) {
+                const reactProgress = (progress - 0.3) / 0.7;
+                if (defPlayer.coverageType === 'blitz') {
+                  defY = defPlayer.initialPos.y + (75 - defPlayer.initialPos.y) * reactProgress * 0.7;
+                  defX = defPlayer.initialPos.x + (50 - defPlayer.initialPos.x) * reactProgress * 0.7;
+                } else if (defPlayer.targetOffensivePlayerId && play.players[defPlayer.targetOffensivePlayerId]) {
+                  const offPos = getPlayerCurrentPosition(defPlayer.targetOffensivePlayerId);
+                  defX = defPlayer.initialPos.x + (offPos.x - defPlayer.initialPos.x) * reactProgress * 0.6;
+                  defY = defPlayer.initialPos.y + (offPos.y - 4 - defPlayer.initialPos.y) * reactProgress * 0.6;
+                } else if (defPlayer.coverageType.includes('deep')) {
+                  defY = defPlayer.initialPos.y - 4 * reactProgress; // Backpedal
+                }
+              }
+
+              return (
+                <g key={`def-${defPlayer.id}`}>
+                  {/* Defender Circle */}
+                  <circle
+                    cx={defX}
+                    cy={defY}
+                    r="2.3"
+                    fill="#be123c"
+                    stroke="#fda4af"
+                    strokeWidth="0.5"
+                    className="transition-all duration-75"
+                  />
+                  <text
+                    x={defX}
+                    y={defY + 0.9}
+                    textAnchor="middle"
+                    fontSize="1.9"
+                    fontWeight="bold"
+                    fill="#ffffff"
+                    className="font-mono select-none"
+                  >
+                    {defPlayer.label}
+                  </text>
+                </g>
+              );
+            })}
+          </g>
+        )}
+
+        {/* ================= Offensive Routes & Paths ================= */}
+        {(Object.entries(play.players) as [string, PlayerAssignment][]).map(([key, player]) => {
+          const isSelected = selectedPlayerId === key;
+          const isPrimary = player.route.isPrimary;
+          const isBallCarrier = player.route.isBallCarrier;
+          const isBlocking = player.route.isBlocking;
+
+          // Route color logic
+          let strokeColor = player.route.color || '#38bdf8';
+          let markerEnd = 'url(#arrow-primary)';
+          if (isBallCarrier) {
+            strokeColor = '#ef4444';
+            markerEnd = 'url(#arrow-runner)';
+          } else if (isPrimary) {
+            strokeColor = '#38bdf8';
+            markerEnd = 'url(#arrow-primary)';
+          } else if (player.route.isSecondary) {
+            strokeColor = '#10b981';
+            markerEnd = 'url(#arrow-secondary)';
+          } else if (strokeColor === '#f59e0b') {
+            markerEnd = 'url(#arrow-amber)';
+          } else if (strokeColor === '#ec4899') {
+            markerEnd = 'url(#arrow-pink)';
+          } else if (strokeColor === '#a855f7') {
+            markerEnd = 'url(#arrow-purple)';
+          }
+
+          const routeSvg = getRouteSvgPath(player.route.points);
+
+          return (
+            <g key={`route-group-${key}`}>
+              {/* Pre-Snap Motion Path (Dashed Orange) */}
+              {player.motion && (
+                <g>
+                  <line
+                    x1={player.motion.startPos.x}
+                    y1={player.motion.startPos.y}
+                    x2={player.motion.endPos.x}
+                    y2={player.motion.endPos.y}
+                    stroke="#fb923c"
+                    strokeWidth="0.75"
+                    strokeDasharray="1.5,1.5"
+                    markerEnd="url(#arrow-motion)"
+                  />
+                  <circle
+                    cx={player.motion.startPos.x}
+                    cy={player.motion.startPos.y}
+                    r="1.4"
+                    fill="none"
+                    stroke="#fb923c"
+                    strokeWidth="0.5"
+                    strokeDasharray="1,1"
+                  />
+                  {showLabels && (
+                    <text
+                      x={(player.motion.startPos.x + player.motion.endPos.x) / 2}
+                      y={(player.motion.startPos.y + player.motion.endPos.y) / 2 - 1.5}
+                      textAnchor="middle"
+                      fontSize="1.7"
+                      fontWeight="bold"
+                      fill="#fb923c"
+                      className="font-mono"
+                    >
+                      MOTION
+                    </text>
+                  )}
+                </g>
+              )}
+
+              {/* Full Route Line (If enabled or selected) */}
+              {(showFullRoutes || isSelected) && (
+                <g>
+                  {/* Outer glow on selected/primary */}
+                  {(isSelected || isPrimary || isBallCarrier) && (
+                    <path
+                      d={routeSvg}
+                      fill="none"
+                      stroke={strokeColor}
+                      strokeWidth="2.5"
+                      strokeOpacity="0.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  )}
+
+                  {/* Route Vector Path */}
+                  <path
+                    d={routeSvg}
+                    fill="none"
+                    stroke={strokeColor}
+                    strokeWidth={isBallCarrier ? '1.2' : (isBlocking ? '0.7' : (isSelected ? '1.1' : '0.85'))}
+                    strokeDasharray={player.route.isFake ? '2,1.5' : undefined}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    markerEnd={isBlocking ? undefined : markerEnd}
+                    opacity={selectedPlayerId && !isSelected ? 0.35 : 0.95}
+                  />
+
+                  {/* Blocking T-Bar Cap for blocking assignments */}
+                  {isBlocking && player.route.points.length >= 2 && (
+                    (() => {
+                      const lastPt = player.route.points[player.route.points.length - 1];
+                      const prevPt = player.route.points[player.route.points.length - 2];
+                      const dx = lastPt.x - prevPt.x;
+                      const dy = lastPt.y - prevPt.y;
+                      const angle = Math.atan2(dy, dx);
+                      const perpAngle = angle + Math.PI / 2;
+                      const barLen = 1.8;
+                      return (
+                        <line
+                          x1={lastPt.x - Math.cos(perpAngle) * barLen}
+                          y1={lastPt.y - Math.sin(perpAngle) * barLen}
+                          x2={lastPt.x + Math.cos(perpAngle) * barLen}
+                          y2={lastPt.y + Math.sin(perpAngle) * barLen}
+                          stroke={strokeColor}
+                          strokeWidth="1.1"
+                          strokeLinecap="square"
+                        />
+                      );
+                    })()
+                  )}
+
+                  {/* Route Number / Concept Label at break/target point */}
+                  {showLabels && player.route.routeNumber !== undefined && (
+                    (() => {
+                      const targetPt = player.route.points[player.route.points.length - 1];
+                      return (
+                        <g>
+                          <rect
+                            x={targetPt.x - 2.8}
+                            y={targetPt.y - 3.8}
+                            width="5.6"
+                            height="3.2"
+                            rx="1"
+                            fill="#0f172a"
+                            stroke={strokeColor}
+                            strokeWidth="0.4"
+                            opacity="0.9"
+                          />
+                          <text
+                            x={targetPt.x}
+                            y={targetPt.y - 1.6}
+                            textAnchor="middle"
+                            fontSize="2"
+                            fontWeight="bold"
+                            fill="#ffffff"
+                            className="font-mono"
+                          >
+                            {player.route.routeNumber}
+                          </text>
+                        </g>
+                      );
+                    })()
+                  )}
+                </g>
+              )}
+            </g>
+          );
+        })}
+
+        {/* ================= Animated Ball Flight ================= */}
+        {isPlaying && progress > 0.05 && (
+          <g>
+            {/* Ball Shadow */}
+            <ellipse
+              cx={ballPos.x}
+              cy={ballPos.y + 1}
+              rx="1.2"
+              ry="0.6"
+              fill="rgba(0,0,0,0.4)"
+            />
+            {/* Football */}
+            <ellipse
+              cx={ballPos.x}
+              cy={ballPos.y}
+              rx="1.4"
+              ry="0.85"
+              fill="#92400e"
+              stroke="#fef3c7"
+              strokeWidth="0.3"
+              transform={`rotate(-25 ${ballPos.x} ${ballPos.y})`}
+            />
+            {/* White Laces */}
+            <line
+              x1={ballPos.x - 0.5}
+              y1={ballPos.y}
+              x2={ballPos.x + 0.5}
+              y2={ballPos.y}
+              stroke="#ffffff"
+              strokeWidth="0.3"
+            />
+          </g>
+        )}
+
+        {/* ================= Offensive Player Tokens ================= */}
+        {(Object.entries(play.players) as [string, PlayerAssignment][]).map(([key, player]) => {
+          const currentPos = getPlayerCurrentPosition(key);
+          const isSelected = selectedPlayerId === key;
+          const isPrimary = player.route.isPrimary;
+          const isBallCarrier = player.route.isBallCarrier;
+
+          // Color token based on position
+          let tokenBg = '#1e293b';
+          let tokenBorder = '#94a3b8';
+          let textColor = '#ffffff';
+
+          if (key === 'QB') {
+            tokenBg = '#dc2626'; // Red for QB
+            tokenBorder = '#fca5a5';
+          } else if (key === 'C') {
+            tokenBg = '#475569'; // Slate for Center
+            tokenBorder = '#cbd5e1';
+          } else if (isBallCarrier) {
+            tokenBg = '#ea580c'; // Orange for carrier
+            tokenBorder = '#fdba74';
+          } else if (isPrimary) {
+            tokenBg = '#0284c7'; // Sky for Primary
+            tokenBorder = '#7dd3fc';
+          } else if (player.route.isSecondary) {
+            tokenBg = '#059669'; // Emerald for Secondary
+            tokenBorder = '#6ee7b7';
+          } else if (key.includes('RB') || key.includes('HB')) {
+            tokenBg = '#7c3aed'; // Purple for Backs
+            tokenBorder = '#c4b5fd';
+          } else {
+            tokenBg = '#0f172a';
+            tokenBorder = '#38bdf8';
+          }
+
+          if (isSelected) {
+            tokenBorder = '#facc15'; // Bright yellow border on selected
+          }
+
+          return (
+            <g
+              key={`player-token-${key}`}
+              className="cursor-pointer group"
+              onClick={() => onSelectPlayer?.(isSelected ? null : key)}
+            >
+              {/* Highlight Aura if Selected or Primary */}
+              {(isSelected || isPrimary || isBallCarrier) && (
+                <circle
+                  cx={currentPos.x}
+                  cy={currentPos.y}
+                  r="4"
+                  fill={isSelected ? '#facc15' : (isBallCarrier ? '#ef4444' : '#38bdf8')}
+                  opacity="0.25"
+                  className="animate-pulse"
+                />
+              )}
+
+              {/* Player Token Circle */}
+              <circle
+                cx={currentPos.x}
+                cy={currentPos.y}
+                r="2.6"
+                fill={tokenBg}
+                stroke={tokenBorder}
+                strokeWidth={isSelected ? '0.8' : '0.55'}
+                className="transition-all duration-75 group-hover:scale-110"
+              />
+
+              {/* Player Position Label Text */}
+              <text
+                x={currentPos.x}
+                y={currentPos.y + 0.9}
+                textAnchor="middle"
+                fontSize="1.9"
+                fontWeight="800"
+                fill={textColor}
+                className="font-mono pointer-events-none select-none tracking-tight"
+              >
+                {key}
+              </text>
+
+              {/* Tag tooltip label below player if active */}
+              {showLabels && (
+                <text
+                  x={currentPos.x}
+                  y={currentPos.y + 4.8}
+                  textAnchor="middle"
+                  fontSize="1.6"
+                  fontWeight="600"
+                  fill="#e2e8f0"
+                  className="font-sans pointer-events-none select-none drop-shadow"
+                >
+                  {player.label.split(' ')[0]}
+                </text>
+              )}
+            </g>
+          );
+        })}
+      </svg>
+
+      {/* Field HUD Overlay: Formation info & strength */}
+      <div className="absolute top-3 left-3 bg-slate-900/85 backdrop-blur-md border border-slate-700/60 rounded-xl px-3 py-1.5 shadow-lg flex items-center gap-2">
+        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+        <div className="text-xs">
+          <span className="font-semibold text-slate-200">{play.formationName}</span>
+          <span className="mx-1.5 text-slate-500">•</span>
+          <span className="text-amber-400 font-mono font-medium">{play.playType}</span>
+        </div>
+      </div>
+
+      {/* Selected Player Detail Badge (Bottom Center) */}
+      {selectedPlayerId && play.players[selectedPlayerId] && (
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md border border-amber-500/50 rounded-xl px-4 py-2 shadow-2xl flex items-center gap-3 text-xs animate-in fade-in zoom-in-95 duration-150">
+          <div className="w-6 h-6 rounded-full bg-amber-500 text-slate-950 font-mono font-bold flex items-center justify-center">
+            {selectedPlayerId}
+          </div>
+          <div>
+            <div className="font-bold text-slate-100 flex items-center gap-1.5">
+              <span>{play.players[selectedPlayerId].label}</span>
+              <span className="text-slate-400">({play.players[selectedPlayerId].positionName})</span>
+            </div>
+            <div className="text-amber-400 font-medium font-mono">
+              Route: {play.players[selectedPlayerId].route.name}
+            </div>
+          </div>
+          <button
+            onClick={() => onSelectPlayer?.(null)}
+            className="ml-2 text-slate-400 hover:text-slate-200 text-xs underline"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
