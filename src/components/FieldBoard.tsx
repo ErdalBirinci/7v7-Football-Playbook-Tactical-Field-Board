@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Play, DefensivePlayer, DefenseScheme, PlayerAssignment } from '../types';
-import { LucideIcon } from 'lucide-react';
+import { Maximize2, Minimize2, Play as PlayIcon, Pause, RotateCcw } from 'lucide-react';
 
 interface FieldBoardProps {
   play: Play;
@@ -14,6 +14,8 @@ interface FieldBoardProps {
   selectedPlayerId?: string | null;
   onSelectPlayer?: (playerId: string | null) => void;
   fieldTheme: 'turf' | 'tactical' | 'chalkboard';
+  onTogglePlay?: () => void;
+  onSeek?: (progress: number) => void;
 }
 
 export const FieldBoard: React.FC<FieldBoardProps> = ({
@@ -28,8 +30,62 @@ export const FieldBoard: React.FC<FieldBoardProps> = ({
   selectedPlayerId,
   onSelectPlayer,
   fieldTheme,
+  onTogglePlay,
+  onSeek,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Synchronize fullscreen state with browser events and keydown (ESC)
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isFullscreen) {
+        if (document.fullscreenElement) {
+          document.exitFullscreen().catch(() => {});
+        }
+        setIsFullscreen(false);
+      }
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isFullscreen]);
+
+  const toggleFullscreen = async () => {
+    if (isFullscreen) {
+      if (document.fullscreenElement) {
+        try {
+          await document.exitFullscreen();
+        } catch {
+          // ignore error
+        }
+      }
+      setIsFullscreen(false);
+    } else {
+      if (containerRef.current?.requestFullscreen) {
+        try {
+          await containerRef.current.requestFullscreen();
+          setIsFullscreen(true);
+        } catch {
+          // Fallback to CSS fixed full-screen modal mode if sandboxed iframe blocks requestFullscreen
+          setIsFullscreen(true);
+        }
+      } else {
+        setIsFullscreen(true);
+      }
+    }
+  };
 
   // Field dimensions in SVG units
   // Field coordinate system: 0-100 X (width), 0-100 Y (length)
@@ -178,11 +234,13 @@ export const FieldBoard: React.FC<FieldBoardProps> = ({
 
   const lineStroke = getLineColor();
 
-  return (
+  const fieldBoardContent = (
     <div
-      ref={containerRef}
-      id="tactical-field-board"
-      className={`relative w-full aspect-[4/3] sm:aspect-[16/10] md:aspect-[16/9] rounded-2xl overflow-hidden shadow-md border border-slate-300 select-none ${getThemeBg()}`}
+      className={`relative w-full h-full ${
+        isFullscreen
+          ? 'max-h-[calc(100vh-90px)] max-w-[calc((100vh-90px)*16/9)] aspect-[16/9] mx-auto rounded-2xl overflow-hidden shadow-2xl border border-slate-700/80'
+          : 'aspect-[4/3] sm:aspect-[16/10] md:aspect-[16/9] rounded-2xl overflow-hidden shadow-md border border-slate-300'
+      } select-none ${getThemeBg()}`}
     >
       <svg
         id="fieldboard-svg-canvas"
@@ -834,7 +892,7 @@ export const FieldBoard: React.FC<FieldBoardProps> = ({
       </svg>
 
       {/* Field HUD Overlay: Formation info & strength */}
-      <div className="absolute top-3 left-3 bg-slate-900/85 backdrop-blur-md border border-slate-700/60 rounded-xl px-3 py-1.5 shadow-lg flex items-center gap-2">
+      <div className="absolute top-3 left-3 bg-slate-900/85 backdrop-blur-md border border-slate-700/60 rounded-xl px-3 py-1.5 shadow-lg flex items-center gap-2 pointer-events-none">
         <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
         <div className="text-xs">
           <span className="font-semibold text-slate-200">{play.formationName}</span>
@@ -843,9 +901,35 @@ export const FieldBoard: React.FC<FieldBoardProps> = ({
         </div>
       </div>
 
+      {/* Fullscreen Mode Toggle Button (Top Right) */}
+      <div className="absolute top-3 right-3 z-30 flex items-center gap-2">
+        <button
+          id="fieldboard-fullscreen-toggle-btn"
+          onClick={toggleFullscreen}
+          title={isFullscreen ? 'Exit Full Screen (ESC)' : 'Full Screen'}
+          className={`backdrop-blur-md px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5 text-xs font-bold transition-all active:scale-95 border ${
+            isFullscreen
+              ? 'bg-red-600/90 hover:bg-red-600 text-white border-red-400/50 shadow-red-600/30'
+              : 'bg-slate-900/85 hover:bg-slate-800 text-slate-200 hover:text-white border-slate-700/60 hover:border-slate-500 shadow-slate-950/40'
+          }`}
+        >
+          {isFullscreen ? (
+            <>
+              <Minimize2 className="w-3.5 h-3.5" />
+              <span>Exit Full Screen (ESC)</span>
+            </>
+          ) : (
+            <>
+              <Maximize2 className="w-3.5 h-3.5 text-sky-400" />
+              <span>Full Screen</span>
+            </>
+          )}
+        </button>
+      </div>
+
       {/* Selected Player Detail Badge (Bottom Center) */}
       {selectedPlayerId && play.players[selectedPlayerId] && (
-        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md border border-amber-500/50 rounded-xl px-4 py-2 shadow-2xl flex items-center gap-3 text-xs animate-in fade-in zoom-in-95 duration-150">
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md border border-amber-500/50 rounded-xl px-4 py-2 shadow-2xl flex items-center gap-3 text-xs animate-in fade-in zoom-in-95 duration-150 z-20">
           <div className="w-6 h-6 rounded-full bg-amber-500 text-slate-950 font-mono font-bold flex items-center justify-center">
             {selectedPlayerId}
           </div>
@@ -866,6 +950,94 @@ export const FieldBoard: React.FC<FieldBoardProps> = ({
           </button>
         </div>
       )}
+    </div>
+  );
+
+  if (isFullscreen) {
+    return (
+      <div
+        ref={containerRef}
+        id="tactical-field-board-fullscreen"
+        className="fixed inset-0 z-50 w-screen h-screen bg-slate-950/98 backdrop-blur-md p-3 sm:p-5 flex flex-col justify-between items-center select-none overflow-hidden"
+      >
+        {/* Fullscreen Top Header Info Bar */}
+        <div className="w-full max-w-6xl flex items-center justify-between gap-4 py-1">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
+              {play.category}
+            </span>
+            <h3 className="text-base sm:text-lg font-black text-white tracking-tight">
+              {play.code}
+            </h3>
+            <span className="hidden md:inline text-xs text-slate-400 truncate max-w-md">
+              {play.englishName}
+            </span>
+          </div>
+
+          <button
+            onClick={toggleFullscreen}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-600 text-xs font-semibold shadow-lg transition-all"
+          >
+            <Minimize2 className="w-4 h-4 text-rose-400" />
+            <span>Close (ESC)</span>
+          </button>
+        </div>
+
+        {/* Center SVG Board in Fullscreen */}
+        <div className="flex-1 w-full flex items-center justify-center my-auto min-h-0">
+          {fieldBoardContent}
+        </div>
+
+        {/* Fullscreen Floating Playback Bar */}
+        <div className="w-full max-w-3xl bg-slate-900/90 backdrop-blur-md border border-slate-700/70 rounded-2xl px-4 py-2.5 shadow-2xl flex items-center gap-3 sm:gap-4 mt-2">
+          {onTogglePlay && (
+            <button
+              onClick={onTogglePlay}
+              className={`p-2.5 rounded-xl text-white font-bold transition-all shadow-md active:scale-95 ${
+                isPlaying
+                  ? 'bg-amber-600 hover:bg-amber-500'
+                  : 'bg-emerald-600 hover:bg-emerald-500'
+              }`}
+              title={isPlaying ? 'Durdur (Pause)' : 'Oynat (Play)'}
+            >
+              {isPlaying ? <Pause className="w-4 h-4" /> : <PlayIcon className="w-4 h-4" />}
+            </button>
+          )}
+
+          {onSeek && (
+            <button
+              onClick={() => onSeek(0)}
+              className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-all active:scale-95"
+              title="Başa Sar (Reset)"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </button>
+          )}
+
+          {/* Timeline slider in fullscreen */}
+          <div className="flex-1 flex items-center gap-3">
+            <span className="text-xs font-mono font-semibold text-slate-400 hidden sm:inline">Timeline</span>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={progress}
+              onChange={(e) => onSeek?.(parseFloat(e.target.value))}
+              className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+            />
+            <span className="text-xs font-mono font-bold text-emerald-400 min-w-[3rem] text-right">
+              {Math.round(progress * 100)}%
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div ref={containerRef} id="tactical-field-board" className="relative w-full">
+      {fieldBoardContent}
     </div>
   );
 };

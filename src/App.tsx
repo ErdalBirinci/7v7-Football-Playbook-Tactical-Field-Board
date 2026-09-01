@@ -229,6 +229,8 @@ export default function App() {
             selectedPlayerId={selectedPlayerId}
             onSelectPlayer={setSelectedPlayerId}
             fieldTheme={fieldTheme}
+            onTogglePlay={() => setIsPlaying(!isPlaying)}
+            onSeek={(p) => setProgress(p)}
           />
 
           {/* Interactive Animation Controller */}

@@ -2,5 +2,7 @@
   "name": "7v7 Football Playbook & Tactical Field Board",
   "description": "Interactive 7-on-7 American football playbook diagramming system, route tree engine, and animated field tactical board.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
