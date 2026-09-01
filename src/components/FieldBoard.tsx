@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Play, DefensivePlayer, DefenseScheme, PlayerAssignment } from '../types';
-import { Maximize2, Minimize2, Play as PlayIcon, Pause, RotateCcw } from 'lucide-react';
+import { Maximize2, Minimize2, Play as PlayIcon, Pause, RotateCcw, PenTool } from 'lucide-react';
 
 interface FieldBoardProps {
   play: Play;
@@ -16,6 +16,7 @@ interface FieldBoardProps {
   fieldTheme: 'turf' | 'tactical' | 'chalkboard';
   onTogglePlay?: () => void;
   onSeek?: (progress: number) => void;
+  onOpenWhiteboard?: () => void;
 }
 
 export const FieldBoard: React.FC<FieldBoardProps> = ({
@@ -32,6 +33,7 @@ export const FieldBoard: React.FC<FieldBoardProps> = ({
   fieldTheme,
   onTogglePlay,
   onSeek,
+  onOpenWhiteboard,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -901,8 +903,20 @@ export const FieldBoard: React.FC<FieldBoardProps> = ({
         </div>
       </div>
 
-      {/* Fullscreen Mode Toggle Button (Top Right) */}
+      {/* Fullscreen & Whiteboard Mode Toggle Buttons (Top Right) */}
       <div className="absolute top-3 right-3 z-30 flex items-center gap-2">
+        {onOpenWhiteboard && (
+          <button
+            id="fieldboard-draw-whiteboard-btn"
+            onClick={onOpenWhiteboard}
+            title="Draw Play on Tactical Whiteboard (Tablet / Touch Pen Mode)"
+            className="backdrop-blur-md px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5 text-xs font-bold transition-all active:scale-95 border bg-emerald-600/90 hover:bg-emerald-600 text-white border-emerald-400/50 shadow-emerald-950/40"
+          >
+            <PenTool className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Whiteboard</span>
+          </button>
+        )}
+
         <button
           id="fieldboard-fullscreen-toggle-btn"
           onClick={toggleFullscreen}

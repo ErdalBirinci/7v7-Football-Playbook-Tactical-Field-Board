@@ -11,6 +11,7 @@ import { GlossaryModal } from './components/GlossaryModal';
 import { PlaybookQuizModal } from './components/PlaybookQuizModal';
 import { WristbandExportModal } from './components/WristbandExportModal';
 import { CustomPlayDesigner } from './components/CustomPlayDesigner';
+import { CoachWhiteboard } from './components/CoachWhiteboard';
 import {
   BookOpen,
   Languages,
@@ -23,6 +24,7 @@ import {
   Maximize2,
   Minimize2,
   Layers,
+  PenTool,
 } from 'lucide-react';
 
 export default function App() {
@@ -54,6 +56,7 @@ export default function App() {
   const [isQuizOpen, setIsQuizOpen] = useState(false);
   const [isWristbandOpen, setIsWristbandOpen] = useState(false);
   const [isDesignerOpen, setIsDesignerOpen] = useState(false);
+  const [isWhiteboardOpen, setIsWhiteboardOpen] = useState(false);
 
   // Animation loop ref
   const animFrameRef = useRef<number | null>(null);
@@ -192,11 +195,20 @@ export default function App() {
             </button>
 
             <button
-              onClick={() => setIsDesignerOpen(true)}
-              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold flex items-center gap-1.5 transition-all shadow-sm shadow-emerald-600/20"
+              onClick={() => setIsWhiteboardOpen(true)}
+              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-1.5 transition-all shadow-sm shadow-emerald-600/20 active:scale-95"
             >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Whiteboard Designer</span>
+              <PenTool className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Draw Whiteboard</span>
+              <span className="sm:hidden">Draw</span>
+            </button>
+
+            <button
+              onClick={() => setIsDesignerOpen(true)}
+              className="px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-indigo-700 font-semibold border border-slate-200 flex items-center gap-1.5 transition-all shadow-2xs"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+              <span className="hidden sm:inline">Play Designer</span>
               <span className="sm:hidden">Designer</span>
             </button>
 
@@ -231,6 +243,7 @@ export default function App() {
             fieldTheme={fieldTheme}
             onTogglePlay={() => setIsPlaying(!isPlaying)}
             onSeek={(p) => setProgress(p)}
+            onOpenWhiteboard={() => setIsWhiteboardOpen(true)}
           />
 
           {/* Interactive Animation Controller */}
@@ -329,6 +342,13 @@ export default function App() {
         isOpen={isDesignerOpen}
         onClose={() => setIsDesignerOpen(false)}
         onSaveCustomPlay={handleSaveCustomPlay}
+      />
+
+      <CoachWhiteboard
+        isOpen={isWhiteboardOpen}
+        onClose={() => setIsWhiteboardOpen(false)}
+        currentPlay={selectedPlay}
+        onSaveAsCustomPlay={handleSaveCustomPlay}
       />
     </div>
   );
