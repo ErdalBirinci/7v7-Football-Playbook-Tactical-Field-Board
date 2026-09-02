@@ -17,6 +17,9 @@ import {
   Users,
   GraduationCap,
   Tv,
+  ZoomIn,
+  ZoomOut,
+  Expand,
 } from 'lucide-react';
 
 interface FieldBoardProps {
@@ -43,6 +46,8 @@ interface FieldBoardProps {
   onOpenCoachingModal?: () => void;
   activeRouteConceptId?: string;
   onSelectRouteConceptId?: (id: string) => void;
+  boardScale?: '1.0x' | '1.5x' | 'theater';
+  onToggleBoardScale?: (scale: '1.0x' | '1.5x' | 'theater') => void;
 }
 
 export const FieldBoard: React.FC<FieldBoardProps> = ({
@@ -69,10 +74,19 @@ export const FieldBoard: React.FC<FieldBoardProps> = ({
   onOpenCoachingModal,
   activeRouteConceptId,
   onSelectRouteConceptId,
+  boardScale: controlledScale,
+  onToggleBoardScale,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [internalScale, setInternalScale] = useState<'1.0x' | '1.5x' | 'theater'>('1.5x');
   const [showCoachingFieldHighlights, setShowCoachingFieldHighlights] = useState(true);
+
+  const currentScale = controlledScale || internalScale;
+  const setScale = (scale: '1.0x' | '1.5x' | 'theater') => {
+    setInternalScale(scale);
+    onToggleBoardScale?.(scale);
+  };
 
   // Available concepts for active play
   const matchedConcepts = detectConceptsForPlay(play);
@@ -279,19 +293,32 @@ export const FieldBoard: React.FC<FieldBoardProps> = ({
 
   const lineStroke = getLineColor();
 
+  // Compute container aspect ratio and responsive height based on scale mode (1.5x active default)
+  const getContainerScaleClasses = () => {
+    if (isFullscreen) {
+      return 'max-h-[calc(100vh-90px)] max-w-[calc((100vh-90px)*16/9)] aspect-[16/9] mx-auto rounded-2xl overflow-hidden shadow-2xl border border-slate-700/80';
+    }
+    switch (currentScale) {
+      case '1.0x':
+        return 'w-full aspect-[16/10] max-h-[480px] rounded-2xl overflow-hidden shadow-md border border-slate-300';
+      case 'theater':
+        return 'w-full aspect-[16/10] sm:aspect-[4/3] max-h-[82vh] rounded-2xl overflow-hidden shadow-xl border border-slate-400 ring-2 ring-blue-500/30';
+      case '1.5x':
+      default:
+        // 1.5x Scaled View: Fluid, full width, perfectly responsive without pixel overflow
+        return 'w-full aspect-[4/3] sm:aspect-[4/3] md:aspect-[16/11] lg:aspect-[4/3] max-h-[74vh] rounded-2xl overflow-hidden shadow-lg border-2 border-slate-400/80 ring-1 ring-slate-900/10';
+    }
+  };
+
   const fieldBoardContent = (
     <div
-      className={`relative w-full h-full ${
-        isFullscreen
-          ? 'max-h-[calc(100vh-90px)] max-w-[calc((100vh-90px)*16/9)] aspect-[16/9] mx-auto rounded-2xl overflow-hidden shadow-2xl border border-slate-700/80'
-          : 'aspect-[4/3] sm:aspect-[16/10] md:aspect-[16/9] rounded-2xl overflow-hidden shadow-md border border-slate-300'
-      } select-none ${getThemeBg()}`}
+      className={`relative w-full max-w-full ${getContainerScaleClasses()} select-none transition-all duration-300 ${getThemeBg()}`}
     >
       <svg
         id="fieldboard-svg-canvas"
         viewBox="0 0 100 100"
         preserveAspectRatio="xMidYMid meet"
-        className="w-full h-full"
+        className="w-full h-full block"
       >
         <defs>
           {/* Arrowhead Markers */}
@@ -1046,17 +1073,55 @@ export const FieldBoard: React.FC<FieldBoardProps> = ({
       </svg>
 
       {/* Field HUD Overlay: Formation info & strength */}
-      <div className="absolute top-3 left-3 bg-slate-900/85 backdrop-blur-md border border-slate-700/60 rounded-xl px-3 py-1.5 shadow-lg flex items-center gap-2 pointer-events-none">
-        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-        <div className="text-xs">
-          <span className="font-semibold text-slate-200">{play.formationName}</span>
+      <div className="absolute top-3 left-3 bg-slate-900/90 backdrop-blur-md border border-slate-700/70 rounded-xl px-3.5 py-2 shadow-xl flex items-center gap-2.5 pointer-events-none z-20">
+        <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+        <div className="text-xs sm:text-sm">
+          <span className="font-bold text-slate-100">{play.formationName}</span>
           <span className="mx-1.5 text-slate-500">•</span>
-          <span className="text-amber-400 font-mono font-medium">{play.playType}</span>
+          <span className="text-amber-400 font-mono font-bold">{play.playType}</span>
         </div>
       </div>
 
-      {/* Fullscreen, Whiteboard, Roster & Coaching Mode Toggle Buttons (Top Right) */}
-      <div className="absolute top-3 right-3 z-30 flex items-center gap-2">
+      {/* Fullscreen, Whiteboard, Roster, Scale & Coaching Mode Toggle Buttons (Top Right) */}
+      <div className="absolute top-3 right-3 z-30 flex flex-wrap items-center justify-end gap-1.5 sm:gap-2">
+        {/* Scale Selector Pill */}
+        <div className="bg-slate-900/90 backdrop-blur-md border border-slate-700/70 rounded-xl p-0.5 shadow-lg flex items-center text-[11px] font-mono font-bold">
+          <button
+            onClick={() => setScale('1.0x')}
+            className={`px-2 py-1 rounded-lg transition-all cursor-pointer ${
+              currentScale === '1.0x'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+            title="Standard Board View (1.0x)"
+          >
+            1.0x
+          </button>
+          <button
+            onClick={() => setScale('1.5x')}
+            className={`px-2 py-1 rounded-lg transition-all cursor-pointer ${
+              currentScale === '1.5x'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+            title="Enlarged Tactical Board View (1.5x - Active Default)"
+          >
+            1.5x
+          </button>
+          <button
+            onClick={() => setScale('theater')}
+            className={`px-2 py-1 rounded-lg transition-all cursor-pointer hidden md:inline-flex items-center gap-1 ${
+              currentScale === 'theater'
+                ? 'bg-purple-600 text-white shadow-xs'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+            title="Stadium Theater View (Maximum Stage)"
+          >
+            <Expand className="w-3 h-3" />
+            <span>Theater</span>
+          </button>
+        </div>
+
         {onToggleCoachingOverlay && (
           <button
             id="fieldboard-coaching-tips-btn"

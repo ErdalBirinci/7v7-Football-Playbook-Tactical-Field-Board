@@ -3,6 +3,7 @@ import { Play, PlayerAssignment, RosterPlayer } from '../types';
 import { getPlayerAssignedToSlot } from '../data/rosterData';
 import { getDrillsForPlay } from '../data/drillDatabase';
 import { detectConceptsForPlay } from '../data/routeConceptsData';
+import { PlayEffectivenessRadar } from './PlayEffectivenessRadar';
 import {
   BookOpen,
   Target,
@@ -256,6 +257,9 @@ export const TacticalDetailPanel: React.FC<TacticalDetailPanelProps> = ({
           </div>
         )}
       </div>
+
+      {/* Play Effectiveness Radar Profile (Recharts) */}
+      <PlayEffectivenessRadar play={play} />
 
       {/* QB Progression Reads */}
       {play.progressionReads && play.progressionReads.length > 0 && (

@@ -71,6 +71,7 @@ export default function App() {
   const [isCoachingTipsOpen, setIsCoachingTipsOpen] = useState(false);
   const [isCoachingOverlayOpen, setIsCoachingOverlayOpen] = useState(false);
   const [activeRouteConceptId, setActiveRouteConceptId] = useState<string | undefined>(undefined);
+  const [boardScale, setBoardScale] = useState<'1.0x' | '1.5x' | 'theater'>('1.5x');
 
   // Interactive selected player on field
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
@@ -191,7 +192,7 @@ export default function App() {
     <div className="min-h-screen bg-slate-100 text-slate-800 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
       {/* Top Application Header */}
       <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/90 px-4 py-3 shadow-xs">
-        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+        <div className="max-w-[1720px] mx-auto flex flex-wrap items-center justify-between gap-3">
           {/* Logo & Playbook Title */}
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-white shadow-md shadow-blue-500/20">
@@ -203,7 +204,7 @@ export default function App() {
                   GRIDIRON 7v7 PLAYBOOK
                 </h1>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-100 text-emerald-700 border border-emerald-300">
-                  OFFLINE ENGINE
+                  1.5X STADIUM VIEW
                 </span>
               </div>
               <p className="text-xs text-slate-500 font-mono">
@@ -317,10 +318,14 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Content Workspace */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left / Center Column: Field Board & Controller (7 cols on lg) */}
-        <div className="lg:col-span-7 space-y-4">
+      {/* Main Content Workspace (1.5x Scaled Layout & Wide View, 100% Responsive) */}
+      <main className={`flex-1 max-w-[1720px] w-full mx-auto p-3 sm:p-4 md:p-6 lg:p-7 min-w-0 ${
+        boardScale === 'theater'
+          ? 'space-y-6'
+          : 'grid grid-cols-1 lg:grid-cols-12 gap-5 lg:gap-6 min-w-0'
+      }`}>
+        {/* Left / Center Column: Field Board & Controller (7 cols on lg, 7-8 cols on xl) */}
+        <div className={`${boardScale === 'theater' ? 'w-full' : 'lg:col-span-7 xl:col-span-7 2xl:col-span-8'} space-y-5 min-w-0 w-full`}>
           {/* Interactive Tactical Field Board */}
           <FieldBoard
             play={selectedPlay}
@@ -346,6 +351,8 @@ export default function App() {
             onOpenCoachingModal={() => setIsCoachingTipsOpen(true)}
             activeRouteConceptId={activeRouteConceptId}
             onSelectRouteConceptId={(id) => setActiveRouteConceptId(id)}
+            boardScale={boardScale}
+            onToggleBoardScale={setBoardScale}
           />
 
           {/* Interactive Animation Controller */}
@@ -386,20 +393,20 @@ export default function App() {
           />
         </div>
 
-        {/* Right Column: Play Selector & Playbook Explorer (5 cols on lg) */}
-        <div className="lg:col-span-5 space-y-4">
+        {/* Right Column: Play Selector & Playbook Explorer (5 cols on lg, 5 cols on xl, 4 cols on 2xl) */}
+        <div className={`${boardScale === 'theater' ? 'grid grid-cols-1 md:grid-cols-2 gap-6' : 'lg:col-span-5 xl:col-span-5 2xl:col-span-4'} space-y-5 min-w-0 w-full`}>
           <PlaySelector
             selectedPlay={selectedPlay}
             onSelectPlay={handleSelectPlay}
           />
 
           {/* Quick Shortcuts & Playbook Quick Facts */}
-          <div className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-sm space-y-2.5 text-xs text-slate-600">
+          <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/90 shadow-sm space-y-3 text-xs text-slate-600">
             <div className="flex items-center justify-between font-mono text-[11px] text-slate-800 font-bold border-b border-slate-100 pb-2">
               <span>KEYBOARD CONTROLS</span>
-              <span className="text-blue-600 font-semibold">7v7 TACTICAL ENGINE</span>
+              <span className="text-blue-600 font-semibold">1.5X STADIUM VIEW</span>
             </div>
-            <div className="grid grid-cols-2 gap-2 text-[11px] font-mono">
+            <div className="grid grid-cols-2 gap-2.5 text-[11px] font-mono">
               <div className="flex items-center gap-1.5">
                 <kbd className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-300 font-semibold">Space</kbd>
                 <span>Play / Pause</span>
